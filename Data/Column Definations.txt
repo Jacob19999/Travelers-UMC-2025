@@ -1,0 +1,60 @@
+Variable Descriptions
+subrogation: Binary indicator (0/1) of whether the claim is subrogated (1 = subrogation, 0 = no subrogation).
+
+claim_number: Unique identifier for each insurance claim
+
+year_of_born: Year of birth of the driver involved in the claim
+
+gender: Gender of the driver (F = Female, M = Male).
+
+email_or_tel_available: Indicator if email or telephone contact is available (1 = available, 0 = not available).
+
+safety_rating: Safety rating of the driver, typically on a scale from 1 to 100.
+
+annual_income: Annual income of the policyholder (in local currency).
+
+high_education_ind: Indicator if the policyholder has a high level of education (1 = high education, 0 = otherwise).
+
+address_change_ind: Indicator if the policyholder has changed address recently (1 = address changed, 0 = not changed).
+
+living_status: Living status of the policyholder (Own = owns home, Rent = rents home).
+
+zip_code: Postal code of the policyholder’s residence.
+
+claim_date: Date when the claim was filed.
+
+claim_day_of_week: Day of the week when the claim was filed (e.g., Monday, Tuesday).
+
+accident_site: Location type where the accident occurred (e.g., Parking Area, Local, Highway/Intersection, Unknown).
+
+past_num_of_claims: Number of past insurance claims made by the policyholder.
+
+witness_present_ind: Indicator if a witness was present at the accident (Y = Yes, N = No).
+
+liab_prct: Estimated liability percentage attributed to the policyholder (0–100).
+
+channel: Channel through which the claim was reported (e.g., Broker, Online, Phone).
+
+policy_report_filed_ind: Indicator if a police report was filed (1 = Yes, 0 = No).
+
+claim_est_payout: Estimated payout amount for the claim (bill amount).
+
+age_of_vehicle: Age of the vehicle (in years) at the time of the claim.
+
+vehicle_made_year: Year the vehicle was manufactured.
+
+vehicle_category: Category of the vehicle (e.g., Compact, Large, Medium).
+
+vehicle_price: Price of the vehicle (in local currency).
+
+vehicle_color: Color of the vehicle.
+
+vehicle_weight: Weight of the vehicle (in kilograms).
+
+age_of_DL: Age at which the driver obtained their driver’s license.
+
+accident_type: Type of accident (e.g., multi_vehicle_unclear, multi_vehicle_clear, single_car).
+
+in_network_bodyshop: Indicator if the repair was done at an in-network body shop (yes/no).
+
+vehicle_mileage: Total mileage of the vehicle at the time of the claim
