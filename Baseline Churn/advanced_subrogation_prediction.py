@@ -4,17 +4,105 @@ Targets 0.7-0.8 F1 score using ensemble of LightGBM, XGBoost, and CatBoost
 with comprehensive feature engineering and threshold optimization.
 '''
 
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import f1_score, classification_report, confusion_matrix
-import xgboost as xgb
-import lightgbm as lgb
-from catboost import CatBoostClassifier
-import warnings
-warnings.filterwarnings('ignore')
+# ============================================================================
+# Library Installation and Import Check
+# ============================================================================
+import subprocess
+import sys
+
+def install_package(package, import_name=None):
+    """Install a package if it's not already installed"""
+    if import_name is None:
+        import_name = package
+    
+    try:
+        __import__(import_name)
+        print(f"✓ {package} is already installed")
+        return True
+    except ImportError:
+        print(f"⚠ {package} not found. Installing...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
+            print(f"✓ {package} installed successfully!")
+            return True
+        except Exception as e:
+            print(f"✗ Failed to install {package}: {e}")
+            return False
+
+# List of required packages and their import names
+required_packages = {
+    'pandas': 'pandas',
+    'numpy': 'numpy',
+    'scikit-learn': 'sklearn',
+    'xgboost': 'xgboost',
+    'lightgbm': 'lightgbm',
+    'catboost': 'catboost'
+}
+
+print("="*80)
+print("CHECKING AND INSTALLING REQUIRED LIBRARIES")
+print("="*80)
+
+# Check and install packages
+all_installed = True
+for pip_name, import_name in required_packages.items():
+    if not install_package(pip_name, import_name):
+        all_installed = False
+
+if not all_installed:
+    print("\n⚠ Some packages failed to install. Please install them manually.")
+    sys.exit(1)
+
+print("\n" + "="*80)
+print("IMPORTING LIBRARIES")
+print("="*80)
+
+# Import all required libraries
+try:
+    import pandas as pd
+    print("✓ pandas imported successfully")
+    
+    import numpy as np
+    print("✓ numpy imported successfully")
+    
+    from pathlib import Path
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.metrics import f1_score, classification_report, confusion_matrix
+    print("✓ scikit-learn imported successfully")
+    
+    import xgboost as xgb
+    print("✓ xgboost imported successfully")
+    
+    import lightgbm as lgb
+    print("✓ lightgbm imported successfully")
+    
+    from catboost import CatBoostClassifier
+    print("✓ catboost imported successfully")
+    
+    import warnings
+    warnings.filterwarnings('ignore')
+    print("✓ warnings configured")
+    
+    print("\n" + "="*80)
+    print("ALL LIBRARIES SUCCESSFULLY IMPORTED!")
+    print("="*80)
+    print(f"\nLibrary Versions:")
+    print(f"  pandas: {pd.__version__}")
+    print(f"  numpy: {np.__version__}")
+    print(f"  xgboost: {xgb.__version__}")
+    print(f"  lightgbm: {lgb.__version__}")
+    print(f"  scikit-learn: {__import__('sklearn').__version__}")
+    try:
+        import catboost
+        print(f"  catboost: {catboost.__version__}")
+    except:
+        pass
+    
+except ImportError as e:
+    print(f"\n✗ Error importing libraries: {e}")
+    print("Please ensure all packages are installed correctly.")
+    sys.exit(1)
 
 
 def create_advanced_features(df):
@@ -232,12 +320,14 @@ def main():
     for col in categorical_cols:
         if col in train_df.columns:
             le = LabelEncoder()
+            # Convert to string first to handle categorical columns, then fillna
+            train_col_str = train_df[col].astype(str).replace('nan', 'missing')
+            test_col_str = test_df[col].astype(str).replace('nan', 'missing')
             # Fit on combined data to handle unseen categories
-            combined = pd.concat([train_df[col].fillna('missing'), 
-                                 test_df[col].fillna('missing')]).astype(str)
+            combined = pd.concat([train_col_str, test_col_str])
             le.fit(combined)
-            train_df[f'{col}_encoded'] = le.transform(train_df[col].fillna('missing').astype(str))
-            test_df[f'{col}_encoded'] = le.transform(test_df[col].fillna('missing').astype(str))
+            train_df[f'{col}_encoded'] = le.transform(train_col_str)
+            test_df[f'{col}_encoded'] = le.transform(test_col_str)
             label_encoders[col] = le
             print(f"  Applied label encoding to: {col}")
     
