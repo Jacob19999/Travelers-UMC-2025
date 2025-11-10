@@ -8350,7 +8350,6 @@ subrogation,claim_number,year_of_born,gender,email_or_tel_available,safety_ratin
 0,5161866,1964,F,1,62,54633,1,1,Own,50026,5/29/2016,Wednesday,Parking Area,3,N,36,Online,1,8654.92,2022,Medium,64489.32482,red,21726.46749,19,multi_vehicle_unclear,yes,91901
 0,7568217,1970,F,1,67,30015,1,1,Own,20149,3/11/2015,Saturday,Highway/Intersection,0,Y,52,Broker,1,2239.79,2024,Compact,47812.89035,white,23631.98036,26,single_car,yes,170328
 0,8595879,2002,M,1,45,52513,0,1,Own,15001,1/18/2015,Sunday,Parking Area,0,N,26,Broker,1,8251.54,2021,Medium,15000,white,25503.9541,26,single_car,no,55390
-,1812346,1983,M,1,83,39280,1,1,Own,50047,8/27/2016,Wednesday,Unknown,3,Y,43,Broker,0,5206.21,2027,Compact,15000,blue,10630.06048,22,multi_vehicle_unclear,no,47480
 1,9818696,1957,F,1,80,59856,0,1,Own,80109,2/5/2016,Sunday,Local,0,N,38,Phone,1,1037.81,2027,Medium,45831.54382,white,26467.78363,25,multi_vehicle_clear,yes,128319
 0,5984238,2004,F,1,67,50431,0,1,Own,20139,1/2/2016,Friday,Highway/Intersection,3,N,39,Broker,1,670.32,2026,Medium,15000,white,27183.49863,24,multi_vehicle_unclear,no,41427
 0,5157528,1977,F,1,46,57267,1,0,Rent,20148,6/16/2016,Monday,Highway/Intersection,1,N,36,Phone,1,3849.21,2026,Compact,31148.55422,black,46914.55622,26,multi_vehicle_unclear,yes,76923
