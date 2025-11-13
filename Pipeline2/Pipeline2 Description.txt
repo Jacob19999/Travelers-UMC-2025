@@ -1,0 +1,122 @@
+## Pipeline 2 – **Representation Learning à la Porto Seguro (DAE + NN + GBM)**
+
+**Strategy & justification**
+
+* Borrow from **Porto Seguro 1st place**: learn **deep representations** with **Denoising Autoencoders (DAE)** + **RankGauss normalization**, then train NN/GBM on these representations.
+* Goal: capture high-order non-linear interactions without manual feature crosses.
+
+---
+
+### Step 0 – Preprocessing & RankGauss
+
+1. **Start from Pipeline 1’s cleaned feature set**, but:
+
+   * Use **raw numeric features** (pre-transforms) + properly encoded categoricals.
+
+2. **RankGauss normalization for numeric features**
+
+   * For each numeric feature:
+
+     1. Sort values.
+     2. Map each value to its rank / (N+1) → `u ∈ (0,1)`.
+     3. Transform via `x_gauss = √2 * erfinv(2u - 1)` to approximate N(0,1).
+     4. Optionally subtract mean to center.
+
+3. **Binary features untouched**
+
+   * Keep 0/1 columns as-is (e.g., `email_or_tel_available`, `high_education_ind`, `policy_report_filed_ind`, etc.). 
+
+4. **Categorical → integer indices**
+
+   * For DAE, map each category to an integer (or one-hot if dimension manageable).
+   * Prefer **integer indices + embedding layers** in NN.
+
+---
+
+### Step 1 – Build & Train Denoising Autoencoder
+
+1. **Construct input matrix**
+
+   * Concatenate all RankGauss numeric features + binary features + categorical embeddings (later).
+
+2. **Noise scheme: swap noise**
+
+   * For each mini-batch and each feature: with probability `p_swap ~ 0.1–0.2`, replace a value with a random value from the same column (random row).
+   * This forces the DAE to learn robust structure.
+
+3. **DAE architecture**
+
+   * Input layer: dimension = number of preprocessed features.
+
+   * Encoder:
+
+     * Dense(1000, ReLU)
+     * Dense(500, ReLU)
+     * Bottleneck: Dense(128 or 256, ReLU)
+
+   * Decoder: symmetric back to original dimension.
+
+   * Loss: MSE reconstruction loss.
+
+4. **Training procedure**
+
+   * Optimizer: Adam, learning rate ~1e-3.
+   * Batch size: 1024–4096 (depending on data size).
+   * Epochs: 20–50 with early stopping on validation reconstruction loss.
+   * Save **bottleneck activations** for each claim (train + test).
+
+5. **(Optional) Multi-DAE variants**
+
+   * Train 2–3 DAEs with:
+
+     * Different bottleneck sizes (64, 128, 256).
+     * Different noise levels.
+   * Concatenate outputs to build a **rich representation**.
+
+---
+
+### Step 2 – Supervised Models on Learned Representations
+
+You now have: original engineered features from Pipeline 1 **+ DAE features**.
+
+1. **Model 2A: Neural network classifier**
+
+   * Input: DAE bottleneck (and optionally a few key raw features like `liab_prct`, `claim_est_payout`).
+
+   * Architecture:
+
+     * Dense(256, ReLU) + Dropout(0.3)
+     * Dense(128, ReLU) + Dropout(0.3)
+     * Output: Dense(1, sigmoid)
+
+   * Loss: binary cross-entropy.
+
+   * Class weights for imbalance.
+
+   * Train with early stopping on validation AUC.
+
+2. **Model 2B: Gradient boosting on DAE + raw features**
+
+   * Features: `[DAE_bottleneck] + selected raw engineered features` (from Pipeline 1).
+   * Train LightGBM/XGBoost as in Pipeline 1 (same CV scheme).
+
+---
+
+### Step 3 – Ensembling & Evaluation
+
+1. **Blend NN + GBM**
+
+   * Compute predictions from NN (`p_nn`) and GBM (`p_gbm`).
+   * Try simple blends:
+
+     * `p_ensemble = 0.5 * p_nn + 0.5 * p_gbm`
+     * or search for optimal α in `[0,1]`.
+
+2. **Evaluate**
+
+   * AUC, PR-AUC, top-K subro capture vs. Pipeline 1.
+   * If DAE pipeline **doesn’t beat** baseline, you can:
+
+     * Try different bottleneck sizes.
+     * Add reconstruction of **pre-transformed** vs. raw features.
+     * Increase or decrease swap noise.
