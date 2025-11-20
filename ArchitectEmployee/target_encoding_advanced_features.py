@@ -26,6 +26,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler, KBinsDiscretizer
 from sklearn.feature_selection import SelectFromModel, VarianceThreshold, mutual_info_classif
 from sklearn.impute import SimpleImputer
+from sklearn.cluster import KMeans
 from sklearn.metrics import (roc_auc_score, f1_score, precision_score, recall_score,
                             precision_recall_curve, average_precision_score)
 import xgboost as xgb
@@ -119,6 +120,11 @@ def target_encode_cv(train_df, test_df, y, categorical_cols, cv_folds=5, smoothi
         train_encoded[f'{col}_target_enc'] = 0.0
         test_encoded[f'{col}_target_enc'] = 0.0
         
+        # Frequency encoding (count of each category)
+        train_freq = train_df[col].value_counts().to_dict()
+        train_encoded[f'{col}_freq'] = train_df[col].map(train_freq).fillna(0)
+        test_encoded[f'{col}_freq'] = test_df[col].map(train_freq).fillna(0)
+        
         global_mean = y.mean()
         
         for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_df, y)):
@@ -145,7 +151,7 @@ def target_encode_cv(train_df, test_df, y, categorical_cols, cv_folds=5, smoothi
         test_values = test_df[col].map(test_smoothed_means).fillna(global_mean)
         test_encoded[f'{col}_target_enc'] = test_values
         
-        print(f"[CHECKPOINT]    ✓ {col} encoding complete")
+        print(f"[CHECKPOINT]    ✓ {col} encoding complete (target + frequency)")
     
     return train_encoded, test_encoded
 
@@ -299,6 +305,78 @@ print("\n[CHECKPOINT] 3.3: Creating interaction features...")
 train_encoded = create_interaction_features(train_encoded)
 test_encoded = create_interaction_features(test_encoded)
 print("[CHECKPOINT]    ✓ Interaction features created")
+
+print("\n[CHECKPOINT] 3.4: Creating clustering features...")
+# Identify top numeric features for clustering
+numeric_cols = train_encoded.select_dtypes(include=[np.number]).columns.tolist()
+if len(numeric_cols) > 0:
+    # Use top 10 numeric features for clustering
+    temp_model = xgb.XGBClassifier(
+        n_estimators=50,
+        max_depth=4,
+        learning_rate=0.1,
+        random_state=42,
+        eval_metric='logloss',
+        tree_method='hist'
+    )
+    temp_model.fit(train_encoded[numeric_cols], y)
+    importances = temp_model.feature_importances_
+    top_features_for_cluster = [numeric_cols[i] for i in np.argsort(importances)[-10:]]
+    
+    # Create 5 clusters
+    n_clusters = 5
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    train_cluster_labels = kmeans.fit_predict(train_encoded[top_features_for_cluster])
+    test_cluster_labels = kmeans.predict(test_encoded[top_features_for_cluster])
+    
+    # Add cluster features
+    train_encoded['cluster_id'] = train_cluster_labels
+    test_encoded['cluster_id'] = test_cluster_labels
+    
+    # One-hot encode clusters
+    for i in range(n_clusters):
+        train_encoded[f'cluster_{i}'] = (train_cluster_labels == i).astype(int)
+        test_encoded[f'cluster_{i}'] = (test_cluster_labels == i).astype(int)
+    
+    print(f"[CHECKPOINT]    ✓ Created {n_clusters} cluster membership features")
+else:
+    print("[CHECKPOINT]    ⚠️  No numeric features available for clustering")
+
+print("\n[CHECKPOINT] 3.5: Creating aggregation features...")
+# Create groupby statistics for numeric features grouped by original categoricals
+# Use original categorical columns (they still exist at this point, dropped in Step 4)
+original_cat_cols = [col for col in categorical_cols if col in train_encoded.columns]
+numeric_cols_for_agg = train_encoded.select_dtypes(include=[np.number]).columns.tolist()
+numeric_cols_for_agg = [col for col in numeric_cols_for_agg 
+                        if col not in ['cluster_id'] 
+                        and not col.startswith('cluster_')
+                        and not col.endswith('_target_enc')
+                        and not col.endswith('_freq')]
+
+if len(original_cat_cols) > 0 and len(numeric_cols_for_agg) > 0:
+    # Use top 3 categoricals and top 5 numeric features for aggregation
+    top_cats = original_cat_cols[:3]
+    top_nums = numeric_cols_for_agg[:5]
+    
+    for cat_col in top_cats:
+        for num_col in top_nums:
+            if cat_col in train_encoded.columns and num_col in train_encoded.columns:
+                try:
+                    # Mean aggregation
+                    train_agg = train_encoded.groupby(cat_col)[num_col].mean().to_dict()
+                    train_encoded[f'{num_col}_mean_by_{cat_col}'] = train_encoded[cat_col].map(train_agg).fillna(0)
+                    test_encoded[f'{num_col}_mean_by_{cat_col}'] = test_encoded[cat_col].map(train_agg).fillna(0)
+                    
+                    # Std aggregation
+                    train_std = train_encoded.groupby(cat_col)[num_col].std().fillna(0).to_dict()
+                    train_encoded[f'{num_col}_std_by_{cat_col}'] = train_encoded[cat_col].map(train_std).fillna(0)
+                    test_encoded[f'{num_col}_std_by_{cat_col}'] = test_encoded[cat_col].map(train_std).fillna(0)
+                except:
+                    continue
+    
+    print(f"[CHECKPOINT]    ✓ Created aggregation features (mean/std) for {len(top_cats)} categoricals × {len(top_nums)} numerics")
+else:
+    print("[CHECKPOINT]    ⚠️  Insufficient features for aggregation")
 
 print(f"\n[CHECKPOINT] ✓ Step 3 complete: Feature engineering finished")
 print(f"[CHECKPOINT] Feature counts:")
