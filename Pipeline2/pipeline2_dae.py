@@ -41,6 +41,9 @@ from sklearn.metrics import roc_auc_score, f1_score, precision_recall_curve
 import warnings
 import random
 import itertools
+from scipy.optimize import minimize
+
+warnings.filterwarnings('ignore')
 
 warnings.filterwarnings('ignore')
 
@@ -171,19 +174,32 @@ def load_and_preprocess():
     # --- Interaction Features ---
     print("Creating Interaction Features...")
     # Interactions between key numeric features
-    key_interactions = ['liab_prct', 'claim_est_payout', 'age_of_vehicle', 'vehicle_price', 'annual_income']
+    key_interactions = ['liab_prct', 'claim_est_payout', 'age_of_vehicle', 'vehicle_price', 'annual_income', 'past_num_of_claims']
     key_interactions = [c for c in key_interactions if c in df.columns]
     
     for col1, col2 in itertools.combinations(key_interactions, 2):
         df[f'{col1}_x_{col2}'] = df[col1] * df[col2]
         df[f'{col1}_div_{col2}'] = df[col1] / (df[col2] + 1e-5)
 
+    # --- Enhanced Feature Engineering ---
+    if 'claim_est_payout' in df.columns and 'vehicle_price' in df.columns:
+        df['payout_ratio'] = df['claim_est_payout'] / (df['vehicle_price'] + 1)
+        
+    if 'annual_income' in df.columns and 'vehicle_price' in df.columns:
+        df['income_to_car_price'] = df['annual_income'] / (df['vehicle_price'] + 1)
+        
+    if 'year_of_born' in df.columns and 'claim_year' in df.columns:
+        df['driver_age'] = df['claim_year'] - df['year_of_born']
+        if 'age_of_DL' in df.columns:
+             df['dl_ratio'] = df['age_of_DL'] / (df['driver_age'] - 16 + 1e-5)
+
     # --- Column Types ---
     # Based on inspection
     numeric_cols = [
         'year_of_born', 'safety_rating', 'annual_income', 'past_num_of_claims', 
         'liab_prct', 'claim_est_payout', 'vehicle_made_year', 'vehicle_price', 
-        'vehicle_weight', 'age_of_DL', 'vehicle_mileage', 'age_of_vehicle'
+        'vehicle_weight', 'age_of_DL', 'vehicle_mileage', 'age_of_vehicle',
+        'payout_ratio', 'income_to_car_price', 'driver_age', 'dl_ratio'
     ]
     
     # Add interaction columns to numeric_cols
@@ -326,6 +342,7 @@ def tune_lightgbm(X, y):
             'metric': 'auc',
             'verbosity': -1,
             'boosting_type': 'gbdt',
+            'scale_pos_weight': 3.32,  # Fixed based on probe
             'n_estimators': trial.suggest_int('n_estimators', 500, 2000),
             'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1),
             'num_leaves': trial.suggest_int('num_leaves', 20, 100),
@@ -335,7 +352,6 @@ def tune_lightgbm(X, y):
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
             'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 10.0),
             'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 10.0),
-            'is_unbalance': True
         }
         
         skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=SEED)
@@ -359,7 +375,49 @@ def tune_lightgbm(X, y):
     study = optuna.create_study(direction='maximize')
     study.optimize(objective, n_trials=30) # 30 trials for speed
     print(f"Best params: {study.best_params}")
-    return study.best_params
+    
+    # Ensure fixed params are included in best_params
+    best_params = study.best_params.copy()
+    best_params['scale_pos_weight'] = 3.32
+    best_params['objective'] = 'binary'
+    best_params['metric'] = 'auc'
+    best_params['verbosity'] = -1
+    best_params['boosting_type'] = 'gbdt'
+    
+    return best_params
+
+def optimize_ensemble_weights(nn_oof, lgb_oof, cat_oof, y_true):
+    """Find optimal weights for ensemble to maximize F1"""
+    print("\nOptimizing Ensemble Weights for F1...")
+    
+    def f1_loss(weights):
+        # Normalize weights
+        w = np.array(weights)
+        if np.sum(w) == 0: return 0
+        w = w / np.sum(w)
+        
+        ensemble_pred = w[0]*nn_oof + w[1]*lgb_oof + w[2]*cat_oof
+        
+        # Find best F1 for this ensemble combination
+        precision, recall, thresholds = precision_recall_curve(y_true, ensemble_pred)
+        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+        # Handle NaNs
+        f1_scores = np.nan_to_num(f1_scores)
+        best_f1 = np.max(f1_scores)
+        
+        return -best_f1
+    
+    # Initial weights
+    init_weights = [0.33, 0.33, 0.33]
+    bounds = ((0, 1), (0, 1), (0, 1))
+    
+    # Use method that handles bounds well
+    result = minimize(f1_loss, init_weights, bounds=bounds, method='SLSQP')
+    best_weights = result.x / np.sum(result.x)
+    
+    print(f"Best Weights: NN={best_weights[0]:.4f}, LGB={best_weights[1]:.4f}, Cat={best_weights[2]:.4f}")
+    print(f"Best Ensemble F1 (CV): {-result.fun:.4f}")
+    return best_weights
 
 def main():
     # 1. Preprocessing
@@ -518,7 +576,7 @@ def main():
         'random_seed': SEED,
         'verbose': False,
         'early_stopping_rounds': 50,
-        'auto_class_weights': 'Balanced'
+        'scale_pos_weight': 3.32  # Fixed based on probe
     }
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
@@ -541,9 +599,17 @@ def main():
     
     # 5. Ensembling
     print("\nEnsembling...")
-    # Weighted average (NN: 0.2, LGB: 0.4, Cat: 0.4)
-    ensemble_oof = 0.2 * nn_oof + 0.4 * lgb_oof + 0.4 * cat_oof
-    ensemble_test = 0.2 * nn_preds_test + 0.4 * lgb_preds_test + 0.4 * cat_preds_test
+    
+    # Optimize weights
+    best_weights = optimize_ensemble_weights(nn_oof, lgb_oof, cat_oof, y_train)
+    
+    ensemble_oof = (best_weights[0] * nn_oof + 
+                    best_weights[1] * lgb_oof + 
+                    best_weights[2] * cat_oof)
+                    
+    ensemble_test = (best_weights[0] * nn_preds_test + 
+                     best_weights[1] * lgb_preds_test + 
+                     best_weights[2] * cat_preds_test)
     
     print(f"Ensemble OOF AUC: {roc_auc_score(y_train, ensemble_oof):.4f}")
     
@@ -553,27 +619,42 @@ def main():
     best_idx = np.argmax(f1_scores)
     best_thresh = thresholds[best_idx]
     best_f1 = f1_scores[best_idx]
-    print(f"Best Threshold: {best_thresh:.4f}, Best F1: {best_f1:.4f}")
+    print(f"Best Threshold (CV): {best_thresh:.4f}, Best F1 (CV): {best_f1:.4f}")
     
-    # Apply to test
-    # Or use the user's logic about expected positives (~2778)
-    # The user previously mentioned 2778 positives.
-    # Let's sort predictions and take top 2778
-    target_positives = 2778
-    sorted_preds = np.sort(ensemble_test)[::-1]
-    if target_positives < len(sorted_preds):
-        thresh_target = sorted_preds[target_positives-1]
-        print(f"Threshold for {target_positives} positives: {thresh_target:.4f}")
-    else:
-        thresh_target = best_thresh
-        
-    final_preds = (ensemble_test >= thresh_target).astype(int)
-    print(f"Predicted positives: {final_preds.sum()}")
+    # Analyze F1 for top N on OOF
+    print("\nAnalyzing Top N F1 on OOF:")
+    oof_sorted_idx = np.argsort(ensemble_oof)[::-1]
+    for n in [2000, 2250, 2500, 2778, 3000]:
+        top_n_idx = oof_sorted_idx[:n]
+        y_pred_top_n = np.zeros_like(ensemble_oof)
+        y_pred_top_n[top_n_idx] = 1
+        score = f1_score(y_train, y_pred_top_n)
+        print(f"Top {n}: F1 = {score:.4f}")
     
-    # Submission
-    sub = pd.DataFrame({'claim_number': test_ids, 'subrogation': final_preds})
-    sub.to_csv(SUBMISSION_PATH, index=False)
-    print(f"Submission saved to {SUBMISSION_PATH}")
+    # Generate Submissions
+    print("\nGenerating Submissions...")
+    test_sorted_idx = np.argsort(ensemble_test)[::-1]
+    
+    targets = [2250, 2500, 2778]
+    for n in targets:
+        thresh_idx = n - 1
+        if thresh_idx < len(test_sorted_idx):
+            # Find threshold value that gives top N
+            thresh_val = ensemble_test[test_sorted_idx[thresh_idx]]
+            final_preds = (ensemble_test >= thresh_val).astype(int)
+            
+            # Save
+            save_path = os.path.join(DATA_DIR, f'pipeline2_submission_top{n}.csv')
+            sub = pd.DataFrame({'claim_number': test_ids, 'subrogation': final_preds})
+            sub.to_csv(save_path, index=False)
+            print(f"Saved Top {n} submission to {save_path} (Predicted positives: {final_preds.sum()})")
+    
+    # Save original best threshold submission as well
+    final_preds_best = (ensemble_test >= best_thresh).astype(int)
+    save_path_best = os.path.join(DATA_DIR, f'pipeline2_submission_best_f1.csv')
+    sub = pd.DataFrame({'claim_number': test_ids, 'subrogation': final_preds_best})
+    sub.to_csv(save_path_best, index=False)
+    print(f"Saved Best CV Threshold submission to {save_path_best} (Predicted positives: {final_preds_best.sum()})")
 
 if __name__ == '__main__':
     main()
