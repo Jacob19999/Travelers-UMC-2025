@@ -32,6 +32,9 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, models, callbacks
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
+from sklearn.pipeline import Pipeline
 from scipy.special import erfinv
 import lightgbm as lgb
 from catboost import CatBoostClassifier
@@ -322,15 +325,13 @@ def get_dae_features(model, X_num_bin, X_cat, cat_cols):
     features = bottleneck_model.predict(inputs, batch_size=1024, verbose=1)
     return features
 
-def build_nn_classifier(input_dim):
-    model = models.Sequential([
-        layers.Input(shape=(input_dim,)),
-        layers.Dense(256, activation='relu'),
-        layers.Dropout(0.3),
-        layers.Dense(128, activation='relu'),
-        layers.Dropout(0.3),
-        layers.Dense(1, activation='sigmoid')
-    ])
+def build_nn_classifier(input_dim, hidden_layers=(256, 128), dropout=0.3):
+    model = models.Sequential()
+    model.add(layers.Input(shape=(input_dim,)))
+    for units in hidden_layers:
+        model.add(layers.Dense(units, activation='relu'))
+        model.add(layers.Dropout(dropout))
+    model.add(layers.Dense(1, activation='sigmoid'))
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['AUC'])
     return model
 
@@ -504,53 +505,63 @@ def main():
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED)
     
     # Helper for OOF and Preds
-    def get_oof_preds(model_name, model_fn, X_train, X_test, y_train, **kwargs):
+    def get_oof_preds(model_name, model_fn, X_train, X_test, y_train, kind='sklearn', train_kwargs=None):
         print(f"\nTraining {model_name}...")
         oof = np.zeros(len(y_train))
         test_preds = np.zeros(len(X_test))
+        train_kwargs = train_kwargs or {}
         
         for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
             X_tr, X_val = X_train[train_idx], X_train[val_idx]
             y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
             
-            model = model_fn(**kwargs)
+            model = model_fn()
             
-            if 'fit_params' in kwargs:
-                fit_p = kwargs['fit_params'].copy()
-                if 'eval_set' in fit_p: # Placeholder logic
-                    fit_p['eval_set'] = [(X_val, y_val)]
-                model.fit(X_tr, y_tr, **fit_p)
-                pred_val = model.predict_proba(X_val)[:, 1]
-                pred_test = model.predict_proba(X_test)[:, 1]
-            elif 'nn' in model_name.lower():
-                # NN special handling
+            if kind == 'nn':
                 neg, pos = np.bincount(y_tr)
                 total = neg + pos
-                class_weight = {0: (1 / neg) * (total / 2.0), 1: (1 / pos) * (total / 2.0)}
+                class_weight = {0: (1 / max(neg, 1)) * (total / 2.0), 1: (1 / max(pos, 1)) * (total / 2.0)}
                 es = callbacks.EarlyStopping(monitor='val_auc', mode='max', patience=10, restore_best_weights=True)
-                model.fit(X_tr, y_tr, validation_data=(X_val, y_val), epochs=50, batch_size=512, 
-                          class_weight=class_weight, callbacks=[es], verbose=0)
+                model.fit(
+                    X_tr, y_tr,
+                    validation_data=(X_val, y_val),
+                    epochs=train_kwargs.get('epochs', 50),
+                    batch_size=train_kwargs.get('batch_size', 512),
+                    class_weight=class_weight,
+                    callbacks=[es],
+                    verbose=0
+                )
                 pred_val = model.predict(X_val).flatten()
                 pred_test = model.predict(X_test).flatten()
             else:
-                # LGB/Cat generic
-                model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
-                pred_val = model.predict_proba(X_val)[:, 1]
-                pred_test = model.predict_proba(X_test)[:, 1]
+                model.fit(X_tr, y_tr, **train_kwargs)
+                if hasattr(model, 'predict_proba'):
+                    pred_val = model.predict_proba(X_val)[:, 1]
+                    pred_test = model.predict_proba(X_test)[:, 1]
+                else:
+                    pred_val = model.predict(X_val)
+                    pred_test = model.predict(X_test)
                 
             oof[val_idx] = pred_val
-            test_preds += pred_test / 5
+            test_preds += pred_test / skf.n_splits
             
-        print(f"{model_name} OOF AUC: {roc_auc_score(y_train, oof):.4f}")
         return oof, test_preds
 
     # --- Model Definitions ---
+    
+    model_outputs = []
+    
+    def register_model(name, oof, preds):
+        auc = roc_auc_score(y_train, oof)
+        print(f"{name} OOF AUC: {auc:.4f}")
+        model_outputs.append((name, oof, preds))
     
     # Model 1: NN on DAE
     def create_nn_dae():
         return build_nn_classifier(train_dae_feats.shape[1])
         
-    oof_nn_dae, pred_nn_dae = get_oof_preds("NN (DAE)", create_nn_dae, train_dae_feats, test_dae_feats, y_train)
+    oof_nn_dae, pred_nn_dae = get_oof_preds("NN (DAE)", create_nn_dae, train_dae_feats, test_dae_feats, y_train, kind='nn')
+    register_model("NN (DAE)", oof_nn_dae, pred_nn_dae)
     
     # Combine features for tree models
     X_train_combined = np.hstack([X_train_full.values, train_dae_feats])
@@ -567,94 +578,160 @@ def main():
     best_lgb_params['random_state'] = SEED
     best_lgb_params['verbose'] = -1
     
-    def create_lgb():
-        return lgb.LGBMClassifier(**best_lgb_params)
-        
-    # LGB fit params handled inside wrapper logic roughly, but let's be explicit for manual loop if needed. 
-    # For simplicity using manual loop logic above adapted.
-    # Actually, let's just run the loop manually for control over callbacks
+    def run_lgb_variant(name, param_updates=None):
+        params = best_lgb_params.copy()
+        if param_updates:
+            params.update(param_updates)
+        oof = np.zeros(len(y_train))
+        preds = np.zeros(len(test_ids))
+        for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
+            X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
+            y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
+            model = lgb.LGBMClassifier(**params)
+            model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], callbacks=[lgb.early_stopping(50, verbose=False)])
+            oof[val_idx] = model.predict_proba(X_val)[:, 1]
+            preds += model.predict_proba(X_test_combined)[:, 1] / skf.n_splits
+        register_model(name, oof, preds)
     
-    print("\nTraining Model 2 (LGBM Tuned)...")
-    oof_lgb, pred_lgb = np.zeros(len(y_train)), np.zeros(len(test_ids))
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
-        X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
-        y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        model = lgb.LGBMClassifier(**best_lgb_params)
-        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], callbacks=[lgb.early_stopping(50, verbose=False)])
-        oof_lgb[val_idx] = model.predict_proba(X_val)[:, 1]
-        pred_lgb += model.predict_proba(X_test_combined)[:, 1] / 5
-    print(f"LGBM OOF AUC: {roc_auc_score(y_train, oof_lgb):.4f}")
-
-    # Model 3: CatBoost Default (DAE+Raw)
+    run_lgb_variant("LGBM Tuned")
+    
     cat_params = {
         'iterations': 1000, 'learning_rate': 0.03, 'depth': 6, 'l2_leaf_reg': 3,
         'loss_function': 'Logloss', 'eval_metric': 'AUC', 'random_seed': SEED,
         'verbose': False, 'early_stopping_rounds': 50, 'scale_pos_weight': 3.32
     }
-    print("\nTraining Model 3 (CatBoost Default)...")
-    oof_cat, pred_cat = np.zeros(len(y_train)), np.zeros(len(test_ids))
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
-        X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
-        y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        model = CatBoostClassifier(**cat_params)
-        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
-        oof_cat[val_idx] = model.predict_proba(X_val)[:, 1]
-        pred_cat += model.predict_proba(X_test_combined)[:, 1] / 5
-    print(f"CatBoost OOF AUC: {roc_auc_score(y_train, oof_cat):.4f}")
     
-    # Model 4: CatBoost Depth 4 (DAE+Raw)
-    cat_params_d4 = cat_params.copy()
-    cat_params_d4['depth'] = 4
-    cat_params_d4['iterations'] = 1500 # More iters for shallower trees
+    def run_cat_variant(name, param_updates=None):
+        params = cat_params.copy()
+        if param_updates:
+            params.update(param_updates)
+        oof = np.zeros(len(y_train))
+        preds = np.zeros(len(test_ids))
+        for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
+            X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
+            y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
+            model = CatBoostClassifier(**params)
+            model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+            oof[val_idx] = model.predict_proba(X_val)[:, 1]
+            preds += model.predict_proba(X_test_combined)[:, 1] / skf.n_splits
+        register_model(name, oof, preds)
     
-    print("\nTraining Model 4 (CatBoost Depth 4)...")
-    oof_cat_d4, pred_cat_d4 = np.zeros(len(y_train)), np.zeros(len(test_ids))
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
-        X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
-        y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        model = CatBoostClassifier(**cat_params_d4)
-        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
-        oof_cat_d4[val_idx] = model.predict_proba(X_val)[:, 1]
-        pred_cat_d4 += model.predict_proba(X_test_combined)[:, 1] / 5
-    print(f"CatBoost D4 OOF AUC: {roc_auc_score(y_train, oof_cat_d4):.4f}")
+    run_cat_variant("CatBoost Default")
+    run_cat_variant("CatBoost Depth 4", {'depth': 4, 'iterations': 1500})
     
-    # Model 5: LGBM Monotonic (DAE+Raw)
-    # Constraint: liab_prct should be negative (higher liab -> less subrogation)
-    monotone_constraints = [0] * len(feature_names)
+    # Monotonic constraint for liab_prct
+    monotone_constraints = [0] * len(feature_names_clean)
     if 'liab_prct' in orig_feat_names:
         idx = orig_feat_names.index('liab_prct')
         monotone_constraints[idx] = -1
         print("Applied monotonic constraint to liab_prct")
-        
-    lgb_params_mono = best_lgb_params.copy()
-    lgb_params_mono['monotone_constraints'] = monotone_constraints
     
-    print("\nTraining Model 5 (LGBM Monotonic)...")
-    oof_lgb_mono, pred_lgb_mono = np.zeros(len(y_train)), np.zeros(len(test_ids))
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_combined, y_train)):
-        X_tr, X_val = X_train_combined[train_idx], X_train_combined[val_idx]
-        y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        model = lgb.LGBMClassifier(**lgb_params_mono)
-        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], callbacks=[lgb.early_stopping(50, verbose=False)])
-        oof_lgb_mono[val_idx] = model.predict_proba(X_val)[:, 1]
-        pred_lgb_mono += model.predict_proba(X_test_combined)[:, 1] / 5
-    print(f"LGBM Mono OOF AUC: {roc_auc_score(y_train, oof_lgb_mono):.4f}")
+    run_lgb_variant("LGBM Monotonic", {'monotone_constraints': monotone_constraints})
     
     # Model 6: NN on Raw (Numeric) + DAE
-    # We avoid using integer encoded cats in NN
     X_train_nn = np.hstack([X_train_num_bin, train_dae_feats])
     X_test_nn = np.hstack([X_test_num_bin, test_dae_feats])
     
     def create_nn_raw_dae():
         return build_nn_classifier(X_train_nn.shape[1])
     
-    oof_nn_raw, pred_nn_raw = get_oof_preds("NN (Raw+DAE)", create_nn_raw_dae, X_train_nn, X_test_nn, y_train)
-
-    # 6. Ensembling
-    print("\nEnsembling 6 Models...")
+    oof_nn_raw, pred_nn_raw = get_oof_preds("NN (Raw+DAE)", create_nn_raw_dae, X_train_nn, X_test_nn, y_train, kind='nn')
+    register_model("NN (Raw+DAE)", oof_nn_raw, pred_nn_raw)
     
-    oof_list = [oof_nn_dae, oof_lgb, oof_cat, oof_cat_d4, oof_lgb_mono, oof_nn_raw]
-    pred_list = [pred_nn_dae, pred_lgb, pred_cat, pred_cat_d4, pred_lgb_mono, pred_nn_raw]
+    # Additional tree variants
+    run_lgb_variant("LGBM Extra Trees", {'extra_trees': True})
+    run_cat_variant("CatBoost Depth 8", {'depth': 8})
+    run_lgb_variant("LGBM Small Leaves", {'num_leaves': 16})
+    
+    # NN Raw Only
+    def create_nn_raw():
+        return build_nn_classifier(X_train_num_bin.shape[1])
+    
+    oof_nn_raw_only, pred_nn_raw_only = get_oof_preds("NN (Raw Only)", create_nn_raw, X_train_num_bin, X_test_num_bin, y_train, kind='nn')
+    register_model("NN (Raw Only)", oof_nn_raw_only, pred_nn_raw_only)
+    
+    run_cat_variant("CatBoost High Reg", {'l2_leaf_reg': 10})
+    run_lgb_variant("LGBM Low Colsample", {'colsample_bytree': 0.4})
+    
+    # Logistic Regression + GBM + RF style models
+    def build_log_reg_dae():
+        return Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', LogisticRegression(max_iter=500, class_weight='balanced'))
+        ])
+    
+    oof_log_dae, pred_log_dae = get_oof_preds("LogReg (DAE)", build_log_reg_dae, train_dae_feats, test_dae_feats, y_train)
+    register_model("LogReg (DAE)", oof_log_dae, pred_log_dae)
+    
+    def build_log_reg_comb():
+        return Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', LogisticRegression(max_iter=300, class_weight='balanced'))
+        ])
+    
+    oof_log_comb, pred_log_comb = get_oof_preds("LogReg (Combined)", build_log_reg_comb, X_train_combined, X_test_combined, y_train)
+    register_model("LogReg (Combined)", oof_log_comb, pred_log_comb)
+    
+    def build_gb_dae():
+        return GradientBoostingClassifier(learning_rate=0.05, n_estimators=600, max_depth=3, subsample=0.8, random_state=SEED)
+    
+    oof_gb, pred_gb = get_oof_preds("GradientBoosting (DAE)", build_gb_dae, train_dae_feats, test_dae_feats, y_train)
+    register_model("GradientBoosting (DAE)", oof_gb, pred_gb)
+    
+    def build_rf():
+        return RandomForestClassifier(
+            n_estimators=600,
+            max_depth=10,
+            n_jobs=-1,
+            class_weight='balanced_subsample',
+            random_state=SEED
+        )
+    
+    oof_rf, pred_rf = get_oof_preds("RandomForest (Combined)", build_rf, X_train_combined, X_test_combined, y_train)
+    register_model("RandomForest (Combined)", oof_rf, pred_rf)
+    
+    def build_et():
+        return ExtraTreesClassifier(
+            n_estimators=600,
+            max_depth=12,
+            n_jobs=-1,
+            class_weight='balanced',
+            random_state=SEED
+        )
+    
+    oof_et, pred_et = get_oof_preds("ExtraTrees (Combined)", build_et, X_train_combined, X_test_combined, y_train)
+    register_model("ExtraTrees (Combined)", oof_et, pred_et)
+    
+    # Additional CatBoost variants
+    run_cat_variant("CatBoost Depth 10", {'depth': 10})
+    run_cat_variant("CatBoost Low LR", {'learning_rate': 0.01, 'iterations': 2000})
+    run_cat_variant("CatBoost RSM 0.5", {'rsm': 0.5})
+    
+    # Additional LightGBM variants
+    run_lgb_variant("LGBM GOSS", {'boosting_type': 'goss', 'subsample': 1.0})
+    run_lgb_variant("LGBM DART", {'boosting_type': 'dart'})
+    run_lgb_variant("LGBM High LR", {'learning_rate': 0.12, 'n_estimators': 400})
+    run_lgb_variant("LGBM Subsample 0.7", {'subsample': 0.7})
+    
+    # NN DAE Wide variant
+    def create_nn_dae_wide():
+        return build_nn_classifier(train_dae_feats.shape[1], hidden_layers=(512, 256, 128), dropout=0.4)
+    
+    oof_nn_dae_wide, pred_nn_dae_wide = get_oof_preds(
+        "NN (DAE Wide)",
+        create_nn_dae_wide,
+        train_dae_feats,
+        test_dae_feats,
+        y_train,
+        kind='nn',
+        train_kwargs={'epochs': 60}
+    )
+    register_model("NN (DAE Wide)", oof_nn_dae_wide, pred_nn_dae_wide)
+    
+    print(f"\nEnsembling {len(model_outputs)} Models...")
+    
+    oof_list = [entry[1] for entry in model_outputs]
+    pred_list = [entry[2] for entry in model_outputs]
     
     # Optimize weights
     best_weights = optimize_ensemble_weights(oof_list, y_train)
