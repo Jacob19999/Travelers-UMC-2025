@@ -28,8 +28,14 @@ from sklearn.feature_selection import SelectFromModel, VarianceThreshold, mutual
 from sklearn.impute import SimpleImputer
 from sklearn.cluster import KMeans
 from sklearn.metrics import (roc_auc_score, f1_score, precision_score, recall_score,
-                            precision_recall_curve, average_precision_score)
+                            precision_recall_curve, average_precision_score, 
+                            confusion_matrix, roc_curve)
 import xgboost as xgb
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.style.use('seaborn-v0_8-darkgrid')
+sns.set_palette("husl")
 
 print("="*80)
 print("TARGET ENCODING + ADVANCED FEATURE ENGINEERING PIPELINE")
@@ -592,6 +598,62 @@ test_selected = pd.DataFrame(test_selected, columns=top_features, index=test_pro
 print(f"[CHECKPOINT] ✓ Step 6 complete: Selected top {best_feature_count} features")
 
 # ============================================================================
+# STEP 6.5: Visualize Feature Importance
+# ============================================================================
+print("\n" + "="*80)
+print("STEP 6.5: VISUALIZING FEATURE IMPORTANCE")
+print("="*80)
+print("[CHECKPOINT] Starting Step 6.5: Creating feature importance visualizations...")
+
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+top_20 = feature_importance_df.head(20)
+axes[0, 0].barh(range(len(top_20)), top_20['combined_score'])
+axes[0, 0].set_yticks(range(len(top_20)))
+axes[0, 0].set_yticklabels(top_20['feature'])
+axes[0, 0].invert_yaxis()
+axes[0, 0].set_xlabel('Combined Importance Score')
+axes[0, 0].set_title('Top 20 Features - Combined Score', fontsize=12, fontweight='bold')
+axes[0, 0].grid(axis='x', alpha=0.3)
+
+axes[0, 1].barh(range(len(top_20)), top_20['tree_importance'])
+axes[0, 1].set_yticks(range(len(top_20)))
+axes[0, 1].set_yticklabels(top_20['feature'])
+axes[0, 1].invert_yaxis()
+axes[0, 1].set_xlabel('XGBoost Importance')
+axes[0, 1].set_title('Top 20 Features - Tree Importance', fontsize=12, fontweight='bold')
+axes[0, 1].grid(axis='x', alpha=0.3)
+
+axes[1, 0].barh(range(len(top_20)), top_20['mi_score'])
+axes[1, 0].set_yticks(range(len(top_20)))
+axes[1, 0].set_yticklabels(top_20['feature'])
+axes[1, 0].invert_yaxis()
+axes[1, 0].set_xlabel('Mutual Information Score')
+axes[1, 0].set_title('Top 20 Features - Mutual Information', fontsize=12, fontweight='bold')
+axes[1, 0].grid(axis='x', alpha=0.3)
+
+importance_comparison = top_20[['tree_importance_norm', 'mi_score_norm']].values
+x = np.arange(len(top_20))
+width = 0.35
+axes[1, 1].barh(x - width/2, importance_comparison[:, 0], width, label='Tree Importance (norm)', alpha=0.8)
+axes[1, 1].barh(x + width/2, importance_comparison[:, 1], width, label='MI Score (norm)', alpha=0.8)
+axes[1, 1].set_yticks(x)
+axes[1, 1].set_yticklabels(top_20['feature'])
+axes[1, 1].invert_yaxis()
+axes[1, 1].set_xlabel('Normalized Score')
+axes[1, 1].set_title('Top 20 Features - Comparison', fontsize=12, fontweight='bold')
+axes[1, 1].legend()
+axes[1, 1].grid(axis='x', alpha=0.3)
+
+plt.tight_layout()
+feature_importance_plot_path = os.path.join(SCRIPT_DIR, 'feature_importance_plots.png')
+plt.savefig(feature_importance_plot_path, dpi=300, bbox_inches='tight')
+print(f"[CHECKPOINT] ✓ Saved feature importance plots to: {feature_importance_plot_path}")
+plt.close()
+
+print(f"[CHECKPOINT] ✓ Step 6.5 complete: Feature importance visualizations created")
+
+# ============================================================================
 # STEP 7: Load Best Hyperparameters (Hard-coded from 1500-trial optimization)
 # ============================================================================
 print("\n" + "="*80)
@@ -747,6 +809,118 @@ print(f"[CHECKPOINT]    Binary predictions: {test_preds_binary.sum()} positives 
 print(f"\n[CHECKPOINT] ✓ Step 8 complete: Final model training finished")
 
 # ============================================================================
+# STEP 8.5: Visualize Model Performance
+# ============================================================================
+print("\n" + "="*80)
+print("STEP 8.5: VISUALIZING MODEL PERFORMANCE")
+print("="*80)
+print("[CHECKPOINT] Starting Step 8.5: Creating performance visualizations...")
+
+fig = plt.figure(figsize=(20, 12))
+gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+
+ax1 = fig.add_subplot(gs[0, 0])
+precision_vals, recall_vals, pr_thresholds_plot = precision_recall_curve(y, oof_preds)
+ax1.plot(recall_vals, precision_vals, linewidth=2, color='#2E86AB')
+ax1.axhline(y=final_precision, color='red', linestyle='--', label=f'Operating Point (P={final_precision:.3f})', linewidth=2)
+ax1.axvline(x=final_recall, color='red', linestyle='--', linewidth=2)
+ax1.scatter([final_recall], [final_precision], color='red', s=100, zorder=5)
+ax1.set_xlabel('Recall', fontsize=11, fontweight='bold')
+ax1.set_ylabel('Precision', fontsize=11, fontweight='bold')
+ax1.set_title(f'Precision-Recall Curve\nAP Score: {average_precision_score(y, oof_preds):.4f}', fontsize=12, fontweight='bold')
+ax1.legend()
+ax1.grid(alpha=0.3)
+
+ax2 = fig.add_subplot(gs[0, 1])
+fpr, tpr, roc_thresholds = roc_curve(y, oof_preds)
+ax2.plot(fpr, tpr, linewidth=2, color='#A23B72', label=f'ROC Curve (AUC={final_auc:.4f})')
+ax2.plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random Classifier')
+ax2.set_xlabel('False Positive Rate', fontsize=11, fontweight='bold')
+ax2.set_ylabel('True Positive Rate', fontsize=11, fontweight='bold')
+ax2.set_title('ROC Curve', fontsize=12, fontweight='bold')
+ax2.legend()
+ax2.grid(alpha=0.3)
+
+ax3 = fig.add_subplot(gs[0, 2])
+test_thresholds = np.linspace(0.1, 0.9, 100)
+test_f1_scores = []
+for thresh in test_thresholds:
+    test_f1_scores.append(f1_score(y, (oof_preds >= thresh).astype(int)))
+ax3.plot(test_thresholds, test_f1_scores, linewidth=2, color='#F18F01')
+ax3.axvline(x=best_threshold, color='red', linestyle='--', linewidth=2, label=f'Optimal Threshold: {best_threshold:.4f}')
+ax3.axhline(y=final_f1, color='green', linestyle='--', linewidth=1, alpha=0.5, label=f'Best F1: {final_f1:.4f}')
+ax3.set_xlabel('Threshold', fontsize=11, fontweight='bold')
+ax3.set_ylabel('F1 Score', fontsize=11, fontweight='bold')
+ax3.set_title('Threshold vs F1 Score', fontsize=12, fontweight='bold')
+ax3.legend()
+ax3.grid(alpha=0.3)
+
+ax4 = fig.add_subplot(gs[1, 0])
+cm = confusion_matrix(y, (oof_preds >= best_threshold).astype(int))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax4, cbar_kws={'label': 'Count'})
+ax4.set_xlabel('Predicted', fontsize=11, fontweight='bold')
+ax4.set_ylabel('Actual', fontsize=11, fontweight='bold')
+ax4.set_title(f'Confusion Matrix\n(Threshold={best_threshold:.4f})', fontsize=12, fontweight='bold')
+ax4.set_xticklabels(['Negative (0)', 'Positive (1)'])
+ax4.set_yticklabels(['Negative (0)', 'Positive (1)'])
+
+ax5 = fig.add_subplot(gs[1, 1])
+ax5.hist(oof_preds[y == 0], bins=50, alpha=0.6, label='Actual Negative', color='#2E86AB', edgecolor='black')
+ax5.hist(oof_preds[y == 1], bins=50, alpha=0.6, label='Actual Positive', color='#A23B72', edgecolor='black')
+ax5.axvline(x=best_threshold, color='red', linestyle='--', linewidth=2, label=f'Threshold: {best_threshold:.4f}')
+ax5.set_xlabel('Predicted Probability', fontsize=11, fontweight='bold')
+ax5.set_ylabel('Frequency', fontsize=11, fontweight='bold')
+ax5.set_title('Distribution of Predicted Probabilities', fontsize=12, fontweight='bold')
+ax5.legend()
+ax5.grid(axis='y', alpha=0.3)
+
+ax6 = fig.add_subplot(gs[1, 2])
+fold_f1_scores = []
+for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
+    val_preds = oof_preds[val_idx]
+    val_true = y.iloc[val_idx]
+    fold_f1 = f1_score(val_true, (val_preds >= best_threshold).astype(int))
+    fold_f1_scores.append(fold_f1)
+ax6.bar(range(1, 11), fold_f1_scores, color='#F18F01', edgecolor='black', alpha=0.8)
+ax6.axhline(y=final_f1, color='red', linestyle='--', linewidth=2, label=f'Overall F1: {final_f1:.4f}')
+ax6.set_xlabel('Fold Number', fontsize=11, fontweight='bold')
+ax6.set_ylabel('F1 Score', fontsize=11, fontweight='bold')
+ax6.set_title(f'Per-Fold F1 Scores\nMean: {np.mean(fold_f1_scores):.4f} ± {np.std(fold_f1_scores):.4f}', fontsize=12, fontweight='bold')
+ax6.legend()
+ax6.grid(axis='y', alpha=0.3)
+
+ax7 = fig.add_subplot(gs[2, :])
+fold_data = []
+for fold_idx in range(10):
+    fold_data.append({
+        'Fold': fold_idx + 1,
+        'Threshold': fold_thresholds[fold_idx],
+        'F1': fold_f1_scores[fold_idx]
+    })
+fold_df = pd.DataFrame(fold_data)
+ax7_twin = ax7.twinx()
+bars = ax7.bar(fold_df['Fold'], fold_df['F1'], alpha=0.6, color='#2E86AB', label='F1 Score', edgecolor='black')
+line = ax7_twin.plot(fold_df['Fold'], fold_df['Threshold'], color='#A23B72', marker='o', linewidth=2, markersize=8, label='Threshold')
+ax7.set_xlabel('Fold Number', fontsize=11, fontweight='bold')
+ax7.set_ylabel('F1 Score', fontsize=11, fontweight='bold', color='#2E86AB')
+ax7_twin.set_ylabel('Threshold', fontsize=11, fontweight='bold', color='#A23B72')
+ax7.set_title('Per-Fold Threshold and F1 Score', fontsize=12, fontweight='bold')
+ax7.tick_params(axis='y', labelcolor='#2E86AB')
+ax7_twin.tick_params(axis='y', labelcolor='#A23B72')
+lines1, labels1 = ax7.get_legend_handles_labels()
+lines2, labels2 = ax7_twin.get_legend_handles_labels()
+ax7.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+ax7.grid(axis='y', alpha=0.3)
+
+plt.suptitle('Model Performance Analysis Dashboard', fontsize=16, fontweight='bold', y=0.995)
+performance_plot_path = os.path.join(SCRIPT_DIR, 'model_performance_plots.png')
+plt.savefig(performance_plot_path, dpi=300, bbox_inches='tight')
+print(f"[CHECKPOINT] ✓ Saved performance plots to: {performance_plot_path}")
+plt.close()
+
+print(f"[CHECKPOINT] ✓ Step 8.5 complete: Performance visualizations created")
+
+# ============================================================================
 # STEP 9: Generate Submission
 # ============================================================================
 print("\n" + "="*80)
@@ -772,6 +946,49 @@ print(f"  Prediction range: [{submission['subrogation'].min()}, {submission['sub
 print(f"  Predicted positives (1): {submission['subrogation'].sum()} ({submission['subrogation'].sum()/len(submission)*100:.2f}%)")
 print(f"  Predicted negatives (0): {(submission['subrogation'] == 0).sum()} ({(submission['subrogation'] == 0).sum()/len(submission)*100:.2f}%)")
 
+# ============================================================================
+# STEP 9.5: Visualize Test Predictions
+# ============================================================================
+print("\n[CHECKPOINT] Creating test prediction visualizations...")
+
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+axes[0].hist(test_preds_proba, bins=50, color='#2E86AB', edgecolor='black', alpha=0.7)
+axes[0].axvline(x=best_threshold, color='red', linestyle='--', linewidth=2, label=f'Threshold: {best_threshold:.4f}')
+axes[0].set_xlabel('Predicted Probability', fontsize=11, fontweight='bold')
+axes[0].set_ylabel('Frequency', fontsize=11, fontweight='bold')
+axes[0].set_title('Test Set: Distribution of Predicted Probabilities', fontsize=12, fontweight='bold')
+axes[0].legend()
+axes[0].grid(axis='y', alpha=0.3)
+
+prediction_counts = submission['subrogation'].value_counts().sort_index()
+axes[1].bar(prediction_counts.index, prediction_counts.values, color=['#2E86AB', '#A23B72'], edgecolor='black', alpha=0.8)
+axes[1].set_xlabel('Prediction', fontsize=11, fontweight='bold')
+axes[1].set_ylabel('Count', fontsize=11, fontweight='bold')
+axes[1].set_title('Test Set: Prediction Distribution', fontsize=12, fontweight='bold')
+axes[1].set_xticks([0, 1])
+axes[1].set_xticklabels(['Negative (0)', 'Positive (1)'])
+for i, (idx, val) in enumerate(prediction_counts.items()):
+    axes[1].text(idx, val + 100, f'{val}\n({val/len(submission)*100:.1f}%)', ha='center', fontweight='bold')
+axes[1].grid(axis='y', alpha=0.3)
+
+prob_bins = pd.cut(test_preds_proba, bins=[0, 0.2, 0.4, 0.6, 0.8, 1.0], labels=['0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0'])
+bin_counts = prob_bins.value_counts().sort_index()
+colors_gradient = ['#2E86AB', '#5B9BD5', '#A8DADC', '#F18F01', '#A23B72']
+axes[2].bar(range(len(bin_counts)), bin_counts.values, color=colors_gradient, edgecolor='black', alpha=0.8)
+axes[2].set_xlabel('Probability Bin', fontsize=11, fontweight='bold')
+axes[2].set_ylabel('Count', fontsize=11, fontweight='bold')
+axes[2].set_title('Test Set: Probability Distribution by Bins', fontsize=12, fontweight='bold')
+axes[2].set_xticks(range(len(bin_counts)))
+axes[2].set_xticklabels(bin_counts.index, rotation=0)
+axes[2].grid(axis='y', alpha=0.3)
+
+plt.tight_layout()
+test_predictions_plot_path = os.path.join(SCRIPT_DIR, 'test_predictions_plots.png')
+plt.savefig(test_predictions_plot_path, dpi=300, bbox_inches='tight')
+print(f"[CHECKPOINT] ✓ Saved test prediction plots to: {test_predictions_plot_path}")
+plt.close()
+
 print("\n" + "="*80)
 print("🎉 PIPELINE COMPLETE! 🎉")
 print("="*80)
@@ -788,4 +1005,112 @@ print(f"  Your F1: {final_f1:.5f}")
 print(f"  Improvement: {final_f1 - 0.59272:+.5f} ({((final_f1 - 0.59272) / 0.59272 * 100):+.2f}%)")
 print("="*80)
 print("[CHECKPOINT] Pipeline execution finished. Check the submission file for results!")
+
+# ============================================================================
+# FINAL: Create Summary Dashboard
+# ============================================================================
+print("\n[CHECKPOINT] Creating final summary dashboard...")
+
+fig = plt.figure(figsize=(16, 10))
+gs = fig.add_gridspec(3, 2, hspace=0.4, wspace=0.3)
+
+ax1 = fig.add_subplot(gs[0, 0])
+metrics = ['F1 Score', 'AUC', 'Precision', 'Recall']
+values = [final_f1, final_auc, final_precision, final_recall]
+colors_bars = ['#2E86AB', '#A23B72', '#F18F01', '#5B9BD5']
+bars = ax1.barh(metrics, values, color=colors_bars, edgecolor='black', alpha=0.8)
+ax1.set_xlim(0, 1)
+ax1.set_xlabel('Score', fontsize=11, fontweight='bold')
+ax1.set_title('Model Performance Metrics (CV)', fontsize=12, fontweight='bold')
+for i, (metric, value) in enumerate(zip(metrics, values)):
+    ax1.text(value + 0.02, i, f'{value:.4f}', va='center', fontweight='bold')
+ax1.grid(axis='x', alpha=0.3)
+
+ax2 = fig.add_subplot(gs[0, 1])
+train_dist = y.value_counts(normalize=True).sort_index()
+test_dist = submission['subrogation'].value_counts(normalize=True).sort_index()
+x = np.arange(2)
+width = 0.35
+ax2.bar(x - width/2, train_dist.values * 100, width, label='Train Set', color='#2E86AB', edgecolor='black', alpha=0.8)
+ax2.bar(x + width/2, test_dist.values * 100, width, label='Test Predictions', color='#A23B72', edgecolor='black', alpha=0.8)
+ax2.set_ylabel('Percentage (%)', fontsize=11, fontweight='bold')
+ax2.set_title('Class Distribution Comparison', fontsize=12, fontweight='bold')
+ax2.set_xticks(x)
+ax2.set_xticklabels(['Negative (0)', 'Positive (1)'])
+ax2.legend()
+ax2.grid(axis='y', alpha=0.3)
+for i, v in enumerate(train_dist.values * 100):
+    ax2.text(i - width/2, v + 1, f'{v:.1f}%', ha='center', fontweight='bold', fontsize=9)
+for i, v in enumerate(test_dist.values * 100):
+    ax2.text(i + width/2, v + 1, f'{v:.1f}%', ha='center', fontweight='bold', fontsize=9)
+
+ax3 = fig.add_subplot(gs[1, :])
+top_10_features = feature_importance_df.head(10)
+ax3.barh(range(len(top_10_features)), top_10_features['combined_score'], color='#F18F01', edgecolor='black', alpha=0.8)
+ax3.set_yticks(range(len(top_10_features)))
+ax3.set_yticklabels(top_10_features['feature'])
+ax3.invert_yaxis()
+ax3.set_xlabel('Importance Score', fontsize=11, fontweight='bold')
+ax3.set_title('Top 10 Most Important Features', fontsize=12, fontweight='bold')
+ax3.grid(axis='x', alpha=0.3)
+
+ax4 = fig.add_subplot(gs[2, 0])
+info_text = f"""
+Model Configuration:
+  • Algorithm: XGBoost
+  • Features Selected: {best_feature_count}
+  • Cross-Validation: 10-Fold Stratified
+  • Optimal Threshold: {best_threshold:.4f}
+  • scale_pos_weight: {best_params['scale_pos_weight']:.4f}
+
+Training Data:
+  • Total Samples: {len(y):,}
+  • Positive Class: {(y==1).sum():,} ({(y==1).sum()/len(y)*100:.2f}%)
+  • Negative Class: {(y==0).sum():,} ({(y==0).sum()/len(y)*100:.2f}%)
+
+Test Predictions:
+  • Total Samples: {len(submission):,}
+  • Predicted Positive: {submission['subrogation'].sum():,} ({submission['subrogation'].sum()/len(submission)*100:.2f}%)
+  • Predicted Negative: {(submission['subrogation']==0).sum():,} ({(submission['subrogation']==0).sum()/len(submission)*100:.2f}%)
+"""
+ax4.text(0.05, 0.95, info_text, transform=ax4.transAxes, fontsize=10, 
+         verticalalignment='top', fontfamily='monospace',
+         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+ax4.axis('off')
+ax4.set_title('Pipeline Summary', fontsize=12, fontweight='bold', loc='left')
+
+ax5 = fig.add_subplot(gs[2, 1])
+comparison_data = {
+    'Baseline F1': 0.59272,
+    'Current F1': final_f1
+}
+bars = ax5.bar(comparison_data.keys(), comparison_data.values(), color=['#5B9BD5', '#2E86AB'], edgecolor='black', alpha=0.8)
+ax5.set_ylabel('F1 Score', fontsize=11, fontweight='bold')
+ax5.set_title('F1 Score Comparison', fontsize=12, fontweight='bold')
+ax5.set_ylim(0.58, 0.61)
+for bar, (label, value) in zip(bars, comparison_data.items()):
+    height = bar.get_height()
+    ax5.text(bar.get_x() + bar.get_width()/2., height + 0.0005,
+            f'{value:.5f}', ha='center', va='bottom', fontweight='bold')
+improvement = final_f1 - 0.59272
+improvement_pct = (improvement / 0.59272) * 100
+ax5.text(0.5, 0.5, f'Improvement:\n{improvement:+.5f}\n({improvement_pct:+.2f}%)', 
+         transform=ax5.transAxes, ha='center', fontsize=11, fontweight='bold',
+         bbox=dict(boxstyle='round', facecolor='yellow' if improvement > 0 else 'lightcoral', alpha=0.5))
+ax5.grid(axis='y', alpha=0.3)
+
+plt.suptitle('Final Model Summary Dashboard', fontsize=16, fontweight='bold', y=0.995)
+summary_plot_path = os.path.join(SCRIPT_DIR, 'final_summary_dashboard.png')
+plt.savefig(summary_plot_path, dpi=300, bbox_inches='tight')
+print(f"[CHECKPOINT] ✓ Saved final summary dashboard to: {summary_plot_path}")
+plt.close()
+
+print("\n" + "="*80)
+print("VISUALIZATION SUMMARY")
+print("="*80)
+print(f"✓ Feature Importance Plots: {os.path.join(SCRIPT_DIR, 'feature_importance_plots.png')}")
+print(f"✓ Model Performance Plots: {os.path.join(SCRIPT_DIR, 'model_performance_plots.png')}")
+print(f"✓ Test Predictions Plots: {os.path.join(SCRIPT_DIR, 'test_predictions_plots.png')}")
+print(f"✓ Final Summary Dashboard: {os.path.join(SCRIPT_DIR, 'final_summary_dashboard.png')}")
+print("="*80)
 
