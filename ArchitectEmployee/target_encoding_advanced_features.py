@@ -323,8 +323,8 @@ if len(numeric_cols) > 0:
     importances = temp_model.feature_importances_
     top_features_for_cluster = [numeric_cols[i] for i in np.argsort(importances)[-10:]]
     
-    # Create 5 clusters
-    n_clusters = 5
+    # Create 8 clusters (increased from 5)
+    n_clusters = 8
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     train_cluster_labels = kmeans.fit_predict(train_encoded[top_features_for_cluster])
     test_cluster_labels = kmeans.predict(test_encoded[top_features_for_cluster])
@@ -354,10 +354,11 @@ numeric_cols_for_agg = [col for col in numeric_cols_for_agg
                         and not col.endswith('_freq')]
 
 if len(original_cat_cols) > 0 and len(numeric_cols_for_agg) > 0:
-    # Use top 3 categoricals and top 5 numeric features for aggregation
-    top_cats = original_cat_cols[:3]
-    top_nums = numeric_cols_for_agg[:5]
+    # Use top 4 categoricals and top 6 numeric features for aggregation (increased)
+    top_cats = original_cat_cols[:4]
+    top_nums = numeric_cols_for_agg[:6]
     
+    agg_count = 0
     for cat_col in top_cats:
         for num_col in top_nums:
             if cat_col in train_encoded.columns and num_col in train_encoded.columns:
@@ -371,10 +372,27 @@ if len(original_cat_cols) > 0 and len(numeric_cols_for_agg) > 0:
                     train_std = train_encoded.groupby(cat_col)[num_col].std().fillna(0).to_dict()
                     train_encoded[f'{num_col}_std_by_{cat_col}'] = train_encoded[cat_col].map(train_std).fillna(0)
                     test_encoded[f'{num_col}_std_by_{cat_col}'] = test_encoded[cat_col].map(train_std).fillna(0)
+                    
+                    # Median aggregation
+                    train_median = train_encoded.groupby(cat_col)[num_col].median().to_dict()
+                    train_encoded[f'{num_col}_median_by_{cat_col}'] = train_encoded[cat_col].map(train_median).fillna(0)
+                    test_encoded[f'{num_col}_median_by_{cat_col}'] = test_encoded[cat_col].map(train_median).fillna(0)
+                    
+                    # Min aggregation
+                    train_min = train_encoded.groupby(cat_col)[num_col].min().to_dict()
+                    train_encoded[f'{num_col}_min_by_{cat_col}'] = train_encoded[cat_col].map(train_min).fillna(0)
+                    test_encoded[f'{num_col}_min_by_{cat_col}'] = test_encoded[cat_col].map(train_min).fillna(0)
+                    
+                    # Max aggregation
+                    train_max = train_encoded.groupby(cat_col)[num_col].max().to_dict()
+                    train_encoded[f'{num_col}_max_by_{cat_col}'] = train_encoded[cat_col].map(train_max).fillna(0)
+                    test_encoded[f'{num_col}_max_by_{cat_col}'] = test_encoded[cat_col].map(train_max).fillna(0)
+                    
+                    agg_count += 5  # 5 aggregation types per combination
                 except:
                     continue
     
-    print(f"[CHECKPOINT]    ✓ Created aggregation features (mean/std) for {len(top_cats)} categoricals × {len(top_nums)} numerics")
+    print(f"[CHECKPOINT]    ✓ Created {agg_count} aggregation features (mean/std/median/min/max) for {len(top_cats)} categoricals × {len(top_nums)} numerics")
 else:
     print("[CHECKPOINT]    ⚠️  Insufficient features for aggregation")
 
