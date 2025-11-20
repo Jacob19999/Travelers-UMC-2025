@@ -39,6 +39,30 @@ The dataset contains historical claim data from 2020-2021.
 *   **`Testing_TriGuard.csv`**: Unlabeled test data for which predictions must be generated.
 *   **`Column Definations.txt`**: Detailed descriptions of all variables in the dataset (e.g., driver demographics, vehicle details, accident specifics).
 
+## Pipeline 2: Representation Learning (DAE + Stacking)
+
+This pipeline implements a deep learning approach inspired by the 1st place solution of the Porto Seguro competition, leveraging Denoising Autoencoders (DAE) for robust feature extraction.
+
+### 1. Core Concepts
+*   **RankGauss Normalization**: Transforms numeric features to a normal distribution to help neural networks converge faster.
+*   **Swap Noise (15%)**: Randomly swaps values within columns during DAE training to force the model to learn robust feature correlations rather than memorizing rows.
+*   **Denoising Autoencoder (DAE)**: Unsupervised deep learning model that compresses input data into a dense latent representation (bottleneck).
+
+### 2. Architecture
+*   **Unsupervised Stage**:
+    *   **Input**: RankGauss Numerics + Binary + Categorical Embeddings.
+    *   **Structure**: `Input -> Dense(1000) -> Dense(500) -> Bottleneck(128) -> Dense(500) -> Dense(1000) -> Reconstruction`.
+    *   **Loss**: MSE (Numeric) + CrossEntropy (Categorical).
+    
+*   **Supervised Stage (Stacking)**:
+    1.  **Neural Network**: Trained specifically on the 128-dim DAE bottleneck features.
+    2.  **LightGBM**: Trained on concatenated `[Original Features + DAE Features]`.
+    3.  **CatBoost**: Trained on concatenated `[Original Features + DAE Features]`.
+
+### 3. Ensemble Strategy
+*   **Optimization**: We use `scipy.optimize.minimize` to find the exact ensemble weights that maximize **F1 Score** (not AUC).
+*   **Calibration**: All models use the derived `scale_pos_weight=3.32` to handle the ~23% positive class prevalence.
+
 ## Critical Leaderboard Probing Results (Nov 2025)
 
 We performed a probing submission (predicting all 1s) to reverse-engineer the exact distribution of the test set.

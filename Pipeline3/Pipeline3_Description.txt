@@ -1,0 +1,43 @@
+Pipeline 3 – Heavy Stacking Ensemble
+
+Strategy & Justification:
+Mimics Kaggle 2nd place / BNP winners by building a "model zoo" with diverse algorithms and feature views, then stacking them.
+Goal: Maximize performance via diversity rather than tuning a single model.
+
+Step 0 – Feature Sets (Views)
+1. View A (Basic FE): Standard feature engineering (Dates, Age, Interactions, Label Encoding).
+2. View B (One-Hot): One-hot encoding for low-cardinality categoricals.
+3. View C (SVD): TruncatedSVD (30 components) on View B.
+4. View D (Clusters): KMeans (15 clusters) on View A, providing cluster IDs and distances.
+5. View AC: View A + View C features.
+6. View AD: View A + View D features.
+
+Step 1 – Level 1 Models (Base Learners)
+5-Fold CV OOF Predictions generated for:
+- XGB_A: XGBoost on View A (AUC: 0.8265)
+- LGB_A: LightGBM on View A (AUC: 0.8298)
+- RF_A: RandomForest on View A (AUC: 0.8321)
+- ET_A: ExtraTrees on View A (AUC: 0.8188)
+- XGB_AC: XGBoost on View A + SVD features (AUC: 0.8250)
+- RF_AD: RandomForest on View A + Cluster features (AUC: 0.8294)
+- Logit_B: Logistic Regression on View B (AUC: 0.4966 - likely underfitted/issues)
+- NN_A: Simple MLP on View A (AUC: 0.8295)
+
+Step 2 – Level 2 Meta-Model
+Input: OOF predictions from Level 1 models.
+Meta-Models Trained:
+- Meta_Logit (Logistic Regression): AUC 0.8358
+- Meta_XGB (Small XGBoost): AUC 0.8357
+- Meta_LGB (Small LightGBM): AUC 0.8353
+
+Step 3 – Final Ensemble
+Blended Meta_Logit and Meta_LGB (50/50).
+Final OOF AUC: 0.8366
+
+Performance Comparison:
+- Best Single Model (RF_A): 0.8321
+- Stacking Ensemble: 0.8366 (+0.0045 boost)
+
+Conclusion:
+Stacking provided a significant boost over the best single model, validating the strategy. The diversity of tree models (RF, ET, XGB, LGB) combined with a Neural Net and SVD/Cluster features contributed to a robust meta-model.
+

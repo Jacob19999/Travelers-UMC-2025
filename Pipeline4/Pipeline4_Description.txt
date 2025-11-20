@@ -1,0 +1,46 @@
+Pipeline 4 – BNP / Actuarial Style: Clean Data + Imputation + XAI
+=================================================================
+
+Strategy & Justification:
+-------------------------
+Inspired by BNP Paribas and Actuarial Loss competitions, this pipeline focuses on transparency, robustness, and explainability ("Regulator Friendly").
+It prioritizes data cleaning and simple, interpretable handling of missing data over complex "black box" feature engineering.
+
+Key Steps:
+----------
+
+1. Missingness & Data Quality Audit:
+   - Calculates % missing per feature.
+   - Adds row-level missingness indicators (`missing_count`, `missing_fraction`).
+   - Adds column-specific missing flags for informative missingness (>5% missing).
+   - High missingness columns (>60%) are dropped to reduce noise.
+
+2. Robust Imputation:
+   - Numeric: Median imputation + `is_missing` binary flag.
+   - Categorical: Missing values replaced with explicit "MISSING" category.
+   - This avoids data leakage from complex imputation and keeps the signal of "missingness" intact.
+
+3. Feature Selection:
+   - Low Variance Filter: Drops constant features or those with >99% single value dominance.
+   - Correlation Pruning: Drops one of any pair of numeric features with correlation > 0.95.
+   - Importance-based Selection: Uses a preliminary LightGBM model to drop features with zero importance.
+
+4. Explainable Modeling (GBM):
+   - Model: LightGBM (Gradient Boosting Machine).
+   - Training: 5-Fold Stratified Cross-Validation.
+   - Calibration: Post-hoc calibration using Platt Scaling (Sigmoid) via `CalibratedClassifierCV`.
+     This ensures the predicted probabilities are true probabilities of subrogation.
+
+5. Explainability (XAI):
+   - SHAP (SHapley Additive exPlanations): Global summary plots generated to show feature impact.
+   - Partial Dependence Plots (PDP): Visualizes the marginal effect of top features.
+   - Feature Importance CSV: Exported for governance and audit purposes.
+
+Artifacts:
+----------
+- `pipeline4_submission_top{N}.csv`: Binary submissions for specific top-K cutoffs.
+- `pipeline4_submission_probs.csv`: Raw calibrated probabilities for ensembling.
+- `shap_summary.png`: Global feature importance visualization.
+- `pdp_plots.png`: Partial Dependence Plots for top drivers.
+- `feature_importance_governance.csv`: Tabular importance data.
+
