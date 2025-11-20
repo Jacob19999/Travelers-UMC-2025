@@ -323,8 +323,8 @@ if len(numeric_cols) > 0:
     importances = temp_model.feature_importances_
     top_features_for_cluster = [numeric_cols[i] for i in np.argsort(importances)[-10:]]
     
-    # Create 8 clusters (increased from 5)
-    n_clusters = 8
+    # Create 7 clusters (optimized for better performance)
+    n_clusters = 7
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     train_cluster_labels = kmeans.fit_predict(train_encoded[top_features_for_cluster])
     test_cluster_labels = kmeans.predict(test_encoded[top_features_for_cluster])
@@ -354,9 +354,9 @@ numeric_cols_for_agg = [col for col in numeric_cols_for_agg
                         and not col.endswith('_freq')]
 
 if len(original_cat_cols) > 0 and len(numeric_cols_for_agg) > 0:
-    # Use top 4 categoricals and top 6 numeric features for aggregation (increased)
-    top_cats = original_cat_cols[:4]
-    top_nums = numeric_cols_for_agg[:6]
+    # Use top 5 categoricals and top 5 numeric features for aggregation (balanced)
+    top_cats = original_cat_cols[:5]
+    top_nums = numeric_cols_for_agg[:5]
     
     agg_count = 0
     for cat_col in top_cats:
@@ -525,16 +525,24 @@ print("[CHECKPOINT] Starting Step 6: Feature selection...")
 print("[CHECKPOINT] This step may take a minute...")
 
 print("\n[CHECKPOINT] 6.1: Computing tree-based feature importance...")
+# Use same hyperparameters as final model for more consistent feature selection
 selector_model = xgb.XGBClassifier(
-    n_estimators=100,
-    max_depth=5,
-    learning_rate=0.1,
+    n_estimators=676,
+    max_depth=3,
+    learning_rate=0.012270473488372841,
+    subsample=0.700861220955029,
+    colsample_bytree=0.6090367723004863,
+    gamma=4.140593823608315,
+    min_child_weight=7,
+    reg_alpha=1.5561708103069546e-06,
+    reg_lambda=6.035110051538266e-05,
+    scale_pos_weight=2.3317808523652226,
     random_state=42,
     eval_metric='logloss',
     tree_method='hist'
 )
 selector_model.fit(train_processed, y)
-print("[CHECKPOINT]    ✓ Tree importance computed")
+print("[CHECKPOINT]    ✓ Tree importance computed (using final model hyperparameters)")
 
 print("\n[CHECKPOINT] 6.2: Computing mutual information scores...")
 mi_scores = mutual_info_classif(train_processed, y, random_state=42, n_neighbors=5)
@@ -555,8 +563,8 @@ feature_importance_df['mi_score_norm'] = (
     (feature_importance_df['mi_score'].max() - feature_importance_df['mi_score'].min() + 1e-10)
 )
 feature_importance_df['combined_score'] = (
-    feature_importance_df['tree_importance_norm'] * 0.7 +
-    feature_importance_df['mi_score_norm'] * 0.3
+    feature_importance_df['tree_importance_norm'] * 0.65 +
+    feature_importance_df['mi_score_norm'] * 0.35
 )
 feature_importance_df = feature_importance_df.sort_values('combined_score', ascending=False)
 
@@ -564,7 +572,7 @@ print(f"\n[CHECKPOINT] 6.3: Combining importance scores and selecting top featur
 print(f"\n[CHECKPOINT] Top 20 features:")
 print(feature_importance_df.head(20)[['feature', 'combined_score']].to_string(index=False))
 
-desired_feature_count = 50
+desired_feature_count = 48
 available_feature_count = len(feature_importance_df)
 best_feature_count = min(desired_feature_count, available_feature_count)
 
@@ -622,9 +630,10 @@ print("="*80)
 print("[CHECKPOINT] Starting Step 8: Training final model with threshold optimization...")
 print("[CHECKPOINT] This step will take a few minutes (10-fold CV)...")
 
-print("\n[CHECKPOINT] 8.1: Computing out-of-fold predictions (10-fold CV)...")
+print("\n[CHECKPOINT] 8.1: Computing out-of-fold predictions with per-fold threshold optimization (10-fold CV)...")
 cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 oof_preds = np.zeros(len(y))
+fold_thresholds = []
 
 for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
     print(f"[CHECKPOINT]    Training fold {fold_idx + 1}/10...")
@@ -642,21 +651,56 @@ for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
     
     fold_probs = model.predict_proba(X_val_fold)[:, 1]
     oof_preds[val_idx] = fold_probs
-    print(f"[CHECKPOINT]    ✓ Fold {fold_idx + 1}/10 complete")
+    
+    # Optimize threshold for this specific fold
+    fold_precision, fold_recall, fold_pr_thresholds = precision_recall_curve(y_val_fold, fold_probs)
+    fold_f1_scores = 2 * (fold_precision * fold_recall) / (fold_precision + fold_recall + 1e-10)
+    fold_f1_scores = np.nan_to_num(fold_f1_scores, nan=0.0)
+    
+    fold_best_idx = np.argmax(fold_f1_scores)
+    fold_optimal_threshold = fold_pr_thresholds[fold_best_idx] if fold_best_idx < len(fold_pr_thresholds) else 0.3
+    
+    # Fine-tune threshold for this fold
+    fold_prob_lower = np.percentile(fold_probs, 5)
+    fold_prob_upper = np.percentile(fold_probs, 95)
+    fold_adaptive_min = max(0.1, min(fold_prob_lower, fold_optimal_threshold - 0.15))
+    fold_adaptive_max = min(0.9, max(fold_prob_upper, fold_optimal_threshold + 0.15))
+    
+    fold_fine_thresholds = np.linspace(fold_adaptive_min, fold_adaptive_max, 201)
+    fold_best_threshold = fold_optimal_threshold
+    fold_best_f1 = f1_score(y_val_fold, (fold_probs >= fold_optimal_threshold).astype(int))
+    
+    for thresh in fold_fine_thresholds:
+        fold_f1 = f1_score(y_val_fold, (fold_probs >= thresh).astype(int))
+        if fold_f1 > fold_best_f1:
+            fold_best_f1 = fold_f1
+            fold_best_threshold = thresh
+    
+    fold_thresholds.append(fold_best_threshold)
+    print(f"[CHECKPOINT]    ✓ Fold {fold_idx + 1}/10 complete (optimal threshold: {fold_best_threshold:.4f}, F1: {fold_best_f1:.5f})")
 
-print("\n[CHECKPOINT] ✓ Out-of-fold predictions computed")
-print("\n[CHECKPOINT] 8.2: Optimizing threshold for F1 score...")
+print("\n[CHECKPOINT] ✓ Out-of-fold predictions computed with per-fold threshold optimization")
+print(f"[CHECKPOINT]    Per-fold thresholds: {[f'{t:.4f}' for t in fold_thresholds]}")
+print(f"[CHECKPOINT]    Average fold threshold: {np.mean(fold_thresholds):.4f}")
+print(f"[CHECKPOINT]    Std of fold thresholds: {np.std(fold_thresholds):.4f}")
+
+print("\n[CHECKPOINT] 8.2: Optimizing global threshold for F1 score...")
+# Use median of fold thresholds as starting point (more robust than mean)
+median_fold_threshold = np.median(fold_thresholds)
+avg_fold_threshold = np.mean(fold_thresholds)
+
 precision, recall, pr_thresholds = precision_recall_curve(y, oof_preds)
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 f1_scores = np.nan_to_num(f1_scores, nan=0.0)
 
 best_idx = np.argmax(f1_scores)
-optimal_threshold = pr_thresholds[best_idx] if best_idx < len(pr_thresholds) else 0.3
+optimal_threshold = pr_thresholds[best_idx] if best_idx < len(pr_thresholds) else median_fold_threshold
 
+# Use median fold threshold as center for fine-tuning (more robust)
 prob_lower = np.percentile(oof_preds, 5)
 prob_upper = np.percentile(oof_preds, 95)
-adaptive_min = max(0.1, min(prob_lower, optimal_threshold - 0.15))
-adaptive_max = min(0.9, max(prob_upper, optimal_threshold + 0.15))
+adaptive_min = max(0.1, min(prob_lower, median_fold_threshold - 0.15))
+adaptive_max = min(0.9, max(prob_upper, median_fold_threshold + 0.15))
 
 fine_thresholds = np.linspace(adaptive_min, adaptive_max, 201)
 best_threshold = optimal_threshold
@@ -668,7 +712,10 @@ for thresh in fine_thresholds:
         best_f1 = f1
         best_threshold = thresh
 
-print("[CHECKPOINT]    ✓ Threshold optimization complete")
+print("[CHECKPOINT]    ✓ Global threshold optimization complete")
+print(f"[CHECKPOINT]    Median fold threshold: {median_fold_threshold:.4f}")
+print(f"[CHECKPOINT]    Average fold threshold: {avg_fold_threshold:.4f}")
+print(f"[CHECKPOINT]    Optimized global threshold: {best_threshold:.4f}")
 
 final_f1 = f1_score(y, (oof_preds >= best_threshold).astype(int))
 final_auc = roc_auc_score(y, oof_preds)
