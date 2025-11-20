@@ -593,8 +593,13 @@ final_model.fit(train_selected, y, verbose=False)
 print("[CHECKPOINT]    ✓ Final model trained")
 
 print("\n[CHECKPOINT] 8.4: Generating predictions on test set...")
-test_preds = final_model.predict_proba(test_selected)[:, 1]
-print("[CHECKPOINT]    ✓ Test predictions generated")
+test_preds_proba = final_model.predict_proba(test_selected)[:, 1]
+print("[CHECKPOINT]    ✓ Test probability predictions generated")
+
+# Apply optimal threshold to convert probabilities to binary predictions
+test_preds_binary = (test_preds_proba >= best_threshold).astype(int)
+print(f"[CHECKPOINT]    ✓ Applied threshold {best_threshold:.4f} to convert to binary predictions")
+print(f"[CHECKPOINT]    Binary predictions: {test_preds_binary.sum()} positives ({test_preds_binary.sum()/len(test_preds_binary)*100:.2f}%)")
 
 print(f"\n[CHECKPOINT] ✓ Step 8 complete: Final model training finished")
 
@@ -606,10 +611,10 @@ print("STEP 9: GENERATING SUBMISSION")
 print("="*80)
 print("[CHECKPOINT] Starting Step 9: Generating submission file...")
 
-print("[CHECKPOINT] Creating submission dataframe...")
+print("[CHECKPOINT] Creating submission dataframe with binary predictions (0 or 1)...")
 submission = pd.DataFrame({
     'claim_number': test_original[ID_COL],
-    'subrogation': test_preds
+    'subrogation': test_preds_binary
 })
 
 output_file = os.path.join(SCRIPT_DIR, 'target_encoding_submission.csv')
@@ -620,8 +625,9 @@ print(f"\n[CHECKPOINT] ✓ Step 9 complete: Submission file saved")
 print(f"[CHECKPOINT] Submission file: {output_file}")
 print(f"\n[CHECKPOINT] Submission statistics:")
 print(f"  Shape: {submission.shape}")
-print(f"  Prediction range: [{submission['subrogation'].min():.4f}, {submission['subrogation'].max():.4f}]")
-print(f"  Mean prediction: {submission['subrogation'].mean():.4f}")
+print(f"  Prediction range: [{submission['subrogation'].min()}, {submission['subrogation'].max()}]")
+print(f"  Predicted positives (1): {submission['subrogation'].sum()} ({submission['subrogation'].sum()/len(submission)*100:.2f}%)")
+print(f"  Predicted negatives (0): {(submission['subrogation'] == 0).sum()} ({(submission['subrogation'] == 0).sum()/len(submission)*100:.2f}%)")
 
 print("\n" + "="*80)
 print("🎉 PIPELINE COMPLETE! 🎉")
