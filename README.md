@@ -82,23 +82,5 @@ Use these as mix-and-match modules: Pipeline0/1 provide vetted features, Pipelin
 3. **Threshold-vs-F1 Curve:** Classic convex shape peaking at 0.597 F1 near 0.5, confirming strong calibration.
 4. **Fold Stability:** F1 varies ±0.02, thresholds 0.48–0.55. No leak/instability detected.
 
-### Why LB > CV (~0.0106 gap)
-
-The small bump is within expected noise and likely due to a slightly easier public split or lucky prevalence shift. There is no evidence of overfitting; CV remains tight.
-
-### How Much Headroom Is Left?
-
-- With AP ≈0.60 and prevalence ≈0.2316, Bayes-optimal F1 is roughly 0.68–0.70 (cf. Porto Seguro leaderboards).
-- Current 0.6078 captures ~90–95% of the signal. Remaining gains come from richer features/ensembles, not tweaking a single GBM.
-
-### Action Plan to Push 0.65+
-
-1. **Lower Final Threshold (0.45–0.48):** Trade a few precision points for more recall to gain +0.01–0.02 F1 when the separation is this clean.
-2. **Ship the Full DAE Stack (Pipeline2):** 128–256 bottleneck features routinely add +0.03–0.06 F1 on insurance data.
-3. **Add More Diversity:** CatBoost with alternative depths, LightGBM monotonicity on `liab_prct`, NN on `[raw + DAE]` – blended they add another +0.01–0.02.
-4. **Hill-Climb Thresholds on Full Train Predictions:** Start from the 0.60780 submission and perturb ±0.05 to squeeze +0.005–0.015.
-
-These steps are already in-flight in `pipeline2_dae.py`; the current 25-model ensemble is built to capitalize on them. Hitting **0.66–0.68** on the leaderboard is realistic with the remaining roadmap items.
-
 ## Disclaimer
 TriGuard Insurance Company and the data are fictitious examples used for the purpose of this competition only.
