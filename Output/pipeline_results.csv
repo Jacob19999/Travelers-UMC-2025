@@ -1,0 +1,5 @@
+pipeline,auc,f1,threshold,status
+Pipeline0,0.84125,0.62069,0.6062,SUCCESS
+Pipeline2,,,,TIMEOUT
+Pipeline3,0.8265,,,SUCCESS
+Pipeline4,0.8358,,0.2259,SUCCESS

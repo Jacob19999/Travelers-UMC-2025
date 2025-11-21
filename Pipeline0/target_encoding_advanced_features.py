@@ -23,14 +23,38 @@ warnings.filterwarnings('ignore')
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import StandardScaler, KBinsDiscretizer
+from sklearn.preprocessing import StandardScaler, KBinsDiscretizer, QuantileTransformer
 from sklearn.feature_selection import SelectFromModel, VarianceThreshold, mutual_info_classif
 from sklearn.impute import SimpleImputer
 from sklearn.cluster import KMeans
 from sklearn.metrics import (roc_auc_score, f1_score, precision_score, recall_score,
                             precision_recall_curve, average_precision_score, 
                             confusion_matrix, roc_curve)
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
+from scipy.optimize import differential_evolution
+from scipy.special import erfinv
 import xgboost as xgb
+try:
+    import lightgbm as lgb
+    HAS_LGB = True
+except ImportError:
+    HAS_LGB = False
+    print("[WARNING] LightGBM not available")
+try:
+    import catboost as cb
+    HAS_CAT = True
+except ImportError:
+    HAS_CAT = False
+    print("[WARNING] CatBoost not available")
+try:
+    import tensorflow as tf
+    from tensorflow.keras.layers import Input, Dense, Dropout, GaussianNoise, BatchNormalization
+    from tensorflow.keras.models import Model
+    HAS_TF = True
+except ImportError:
+    HAS_TF = False
+    print("[WARNING] TensorFlow not available - DAE and NN features will be skipped")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -295,6 +319,19 @@ def create_interaction_features(df):
         df['price_x_mileage'] = df['vehicle_price'] * df['vehicle_mileage']
         df['price_per_mile'] = df['vehicle_price'] / (df['vehicle_mileage'] + 1)
     
+    # TIER 1.3: Additional domain-specific interactions (from roadmap)
+    if 'liab_prct' in df.columns and 'claim_est_payout' in df.columns:
+        df['recoverable_amount'] = (100 - df['liab_prct']) / 100 * df['claim_est_payout']
+        df['fault_clarity'] = abs(df['liab_prct'] - 50) / 50  # Clear fault = high score
+        threshold = df['recoverable_amount'].quantile(0.75)  # Use 75th percentile as threshold
+        df['high_value_recoverable'] = ((df['recoverable_amount'] > threshold) & (df['liab_prct'] < 50)).astype(int)
+    
+    if 'witness_present_ind' in df.columns:
+        witness_encoded = df['witness_present_ind'].map({'Y': 1, 'N': 0}).fillna(0) if df['witness_present_ind'].dtype == 'object' else df['witness_present_ind']
+        if 'policy_report_filed_ind' in df.columns:
+            police_encoded = df['policy_report_filed_ind'] if df['policy_report_filed_ind'].dtype in [np.int64, np.float64] else df['policy_report_filed_ind'].map({'Y': 1, 'N': 0}).fillna(0)
+            df['evidence_score'] = witness_encoded * 2 + police_encoded
+    
     return df
 
 print("\n[CHECKPOINT] 3.1: Creating time-based features from claim_date...")
@@ -522,6 +559,38 @@ train_processed = train_processed.replace([np.inf, -np.inf], np.nan).fillna(0)
 test_processed = test_processed.replace([np.inf, -np.inf], np.nan).fillna(0)
 
 # ============================================================================
+# STEP 5.5: RankGauss Transformation (TIER 1.1)
+# ============================================================================
+print("\n" + "="*80)
+print("STEP 5.5: RANKGAUSS TRANSFORMATION")
+print("="*80)
+print("[CHECKPOINT] Starting Step 5.5: Applying RankGauss transformation to numeric features...")
+
+def rank_gauss_transform(df_train, df_test):
+    """Apply RankGauss (Gaussian quantile transform) to numeric features"""
+    df_train_rg = df_train.copy()
+    df_test_rg = df_test.copy()
+    
+    numeric_cols = df_train_rg.select_dtypes(include=[np.number]).columns.tolist()
+    # Exclude binary/categorical encoded columns that should remain as-is
+    exclude_patterns = ['_target_enc', '_freq', 'cluster_', 'is_', 'high_', 'low_']
+    numeric_cols = [col for col in numeric_cols if not any(pattern in col for pattern in exclude_patterns)]
+    
+    if len(numeric_cols) > 0:
+        print(f"[CHECKPOINT]    Applying RankGauss to {len(numeric_cols)} numeric features...")
+        rank_gauss = QuantileTransformer(output_distribution='normal', n_quantiles=1000, random_state=42)
+        df_train_rg[numeric_cols] = rank_gauss.fit_transform(df_train_rg[numeric_cols])
+        df_test_rg[numeric_cols] = rank_gauss.transform(df_test_rg[numeric_cols])
+        print(f"[CHECKPOINT]    ✓ RankGauss transformation complete")
+    else:
+        print("[CHECKPOINT]    ⚠️  No numeric features found for RankGauss")
+    
+    return df_train_rg, df_test_rg
+
+train_processed, test_processed = rank_gauss_transform(train_processed, test_processed)
+print(f"[CHECKPOINT] ✓ Step 5.5 complete: RankGauss transformation applied")
+
+# ============================================================================
 # STEP 6: Feature Selection
 # ============================================================================
 print("\n" + "="*80)
@@ -654,6 +723,101 @@ plt.close()
 print(f"[CHECKPOINT] ✓ Step 6.5 complete: Feature importance visualizations created")
 
 # ============================================================================
+# STEP 6.6: DAE Feature Extraction (TIER 2.1)
+# ============================================================================
+print("\n" + "="*80)
+print("STEP 6.6: DENOISING AUTOENCODER (DAE) FEATURE EXTRACTION")
+print("="*80)
+print("[CHECKPOINT] Starting Step 6.6: Extracting DAE features...")
+
+train_dae_features = None
+test_dae_features = None
+
+if HAS_TF:
+    print("[CHECKPOINT] TensorFlow available - building DAE...")
+    
+    def build_dae(input_dim, bottleneck_dim=256, noise_std=0.15):
+        """Build Denoising Autoencoder"""
+        inputs = Input(shape=(input_dim,))
+        x = GaussianNoise(noise_std)(inputs)
+        x = Dense(512, activation='relu')(x)
+        x = Dropout(0.5)(x)
+        encoded = Dense(bottleneck_dim, activation='relu', name='bottleneck')(x)
+        x = Dense(512, activation='relu')(encoded)
+        x = Dropout(0.5)(x)
+        outputs = Dense(input_dim, activation='linear')(x)
+        
+        dae = Model(inputs, outputs)
+        dae.compile(optimizer='adam', loss='mse')
+        return dae, Model(inputs, encoded)
+    
+    def extract_dae_features(train_data, test_data, n_variants=2):
+        """Extract DAE features with multiple variants"""
+        input_dim = train_data.shape[1]
+        all_train_features = []
+        all_test_features = []
+        
+        for variant in range(n_variants):
+            print(f"[CHECKPOINT]    Training DAE variant {variant + 1}/{n_variants}...")
+            tf.random.set_seed(42 + variant * 111)
+            np.random.seed(42 + variant * 111)
+            
+            dae, encoder = build_dae(input_dim, bottleneck_dim=256, noise_std=0.15)
+            
+            from tensorflow.keras.callbacks import EarlyStopping
+            early_stop = EarlyStopping(monitor='loss', patience=5, restore_best_weights=True, verbose=0)
+            dae.fit(
+                train_data.values, train_data.values,
+                epochs=30,
+                batch_size=128,
+                validation_split=0.1,
+                callbacks=[early_stop],
+                verbose=0
+            )
+            
+            train_dae = encoder.predict(train_data.values, verbose=0)
+            test_dae = encoder.predict(test_data.values, verbose=0)
+            
+            all_train_features.append(train_dae)
+            all_test_features.append(test_dae)
+            print(f"[CHECKPOINT]    ✓ DAE variant {variant + 1} complete")
+        
+        # Concatenate all variants
+        train_combined = np.hstack(all_train_features)
+        test_combined = np.hstack(all_test_features)
+        
+        return train_combined, test_combined
+    
+    try:
+        train_dae_features, test_dae_features = extract_dae_features(
+            train_selected, test_selected, n_variants=2
+        )
+        print(f"[CHECKPOINT] ✓ DAE features extracted: {train_dae_features.shape[1]} features")
+        
+        # Add DAE features to selected features
+        dae_train_df = pd.DataFrame(
+            train_dae_features,
+            columns=[f'dae_{i}' for i in range(train_dae_features.shape[1])],
+            index=train_selected.index
+        )
+        dae_test_df = pd.DataFrame(
+            test_dae_features,
+            columns=[f'dae_{i}' for i in range(test_dae_features.shape[1])],
+            index=test_selected.index
+        )
+        
+        train_selected = pd.concat([train_selected, dae_train_df], axis=1)
+        test_selected = pd.concat([test_selected, dae_test_df], axis=1)
+        print(f"[CHECKPOINT] ✓ DAE features concatenated. New feature count: {train_selected.shape[1]}")
+    except Exception as e:
+        print(f"[CHECKPOINT] ⚠️  DAE feature extraction failed: {str(e)}")
+        print("[CHECKPOINT]    Continuing without DAE features...")
+else:
+    print("[CHECKPOINT] ⚠️  TensorFlow not available - skipping DAE features")
+
+print(f"[CHECKPOINT] ✓ Step 6.6 complete: DAE feature extraction finished")
+
+# ============================================================================
 # STEP 7: Load Best Hyperparameters (Hard-coded from 1500-trial optimization)
 # ============================================================================
 print("\n" + "="*80)
@@ -689,131 +853,321 @@ print(f"\n[CHECKPOINT] ✓ Step 7 complete: Best hyperparameters loaded")
 print(f"[CHECKPOINT] Best parameters: {best_params}")
 
 # ============================================================================
-# STEP 8: Train Final Model with Threshold Optimization
+# STEP 8: Train Ensemble Models with Threshold Optimization (TIER 3)
 # ============================================================================
 print("\n" + "="*80)
-print("STEP 8: TRAIN FINAL MODEL")
+print("STEP 8: TRAIN ENSEMBLE MODELS")
 print("="*80)
-print("[CHECKPOINT] Starting Step 8: Training final model with threshold optimization...")
-print("[CHECKPOINT] This step will take a few minutes (10-fold CV)...")
+print("[CHECKPOINT] Starting Step 8: Training ensemble models with threshold optimization...")
+print("[CHECKPOINT] This step will take several minutes (10-fold CV for multiple models)...")
 
-print("\n[CHECKPOINT] 8.1: Computing out-of-fold predictions with per-fold threshold optimization (10-fold CV)...")
 cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
-oof_preds = np.zeros(len(y))
-fold_thresholds = []
+
+# Store OOF predictions for each model
+oof_predictions = {}
+test_predictions = {}
+final_models = {}
+
+def find_optimal_threshold(y_true, y_proba):
+    """Find optimal threshold for F1 score"""
+    precision, recall, thresholds = precision_recall_curve(y_true, y_proba)
+    f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+    f1_scores = np.nan_to_num(f1_scores, nan=0.0)
+    best_idx = np.argmax(f1_scores)
+    return thresholds[best_idx] if best_idx < len(thresholds) else 0.3
+
+# Model 1: XGBoost
+print("\n[CHECKPOINT] 8.1: Training XGBoost model...")
+oof_xgb = np.zeros(len(y))
+fold_thresholds_xgb = []
 
 for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
-    print(f"[CHECKPOINT]    Training fold {fold_idx + 1}/10...")
+    if fold_idx == 0:
+        print(f"[CHECKPOINT]    Training XGBoost fold {fold_idx + 1}/10...")
     X_train_fold = train_selected.iloc[train_idx]
     X_val_fold = train_selected.iloc[val_idx]
     y_train_fold = y.iloc[train_idx]
     y_val_fold = y.iloc[val_idx]
     
     model = xgb.XGBClassifier(**best_params)
-    model.fit(
-        X_train_fold, y_train_fold,
-        eval_set=[(X_val_fold, y_val_fold)],
-        verbose=False
-    )
-    
+    model.fit(X_train_fold, y_train_fold, eval_set=[(X_val_fold, y_val_fold)], verbose=False)
     fold_probs = model.predict_proba(X_val_fold)[:, 1]
-    oof_preds[val_idx] = fold_probs
+    oof_xgb[val_idx] = fold_probs
     
-    # Optimize threshold for this specific fold
-    fold_precision, fold_recall, fold_pr_thresholds = precision_recall_curve(y_val_fold, fold_probs)
-    fold_f1_scores = 2 * (fold_precision * fold_recall) / (fold_precision + fold_recall + 1e-10)
-    fold_f1_scores = np.nan_to_num(fold_f1_scores, nan=0.0)
-    
-    fold_best_idx = np.argmax(fold_f1_scores)
-    fold_optimal_threshold = fold_pr_thresholds[fold_best_idx] if fold_best_idx < len(fold_pr_thresholds) else 0.3
-    
-    # Fine-tune threshold for this fold
-    # Based on p=0.2316, optimal threshold typically in 0.18-0.28 range
-    fold_prob_lower = np.percentile(fold_probs, 5)
-    fold_prob_upper = np.percentile(fold_probs, 95)
-    fold_adaptive_min = max(0.15, min(fold_prob_lower, fold_optimal_threshold - 0.10))
-    fold_adaptive_max = min(0.35, max(fold_prob_upper, fold_optimal_threshold + 0.10))
-    
-    fold_fine_thresholds = np.linspace(fold_adaptive_min, fold_adaptive_max, 201)
-    fold_best_threshold = fold_optimal_threshold
-    fold_best_f1 = f1_score(y_val_fold, (fold_probs >= fold_optimal_threshold).astype(int))
-    
-    for thresh in fold_fine_thresholds:
-        fold_f1 = f1_score(y_val_fold, (fold_probs >= thresh).astype(int))
-        if fold_f1 > fold_best_f1:
-            fold_best_f1 = fold_f1
-            fold_best_threshold = thresh
-    
-    fold_thresholds.append(fold_best_threshold)
-    print(f"[CHECKPOINT]    ✓ Fold {fold_idx + 1}/10 complete (optimal threshold: {fold_best_threshold:.4f}, F1: {fold_best_f1:.5f})")
+    fold_thresh = find_optimal_threshold(y_val_fold, fold_probs)
+    fold_thresholds_xgb.append(fold_thresh)
 
-print("\n[CHECKPOINT] ✓ Out-of-fold predictions computed with per-fold threshold optimization")
-print(f"[CHECKPOINT]    Per-fold thresholds: {[f'{t:.4f}' for t in fold_thresholds]}")
-print(f"[CHECKPOINT]    Average fold threshold: {np.mean(fold_thresholds):.4f}")
-print(f"[CHECKPOINT]    Std of fold thresholds: {np.std(fold_thresholds):.4f}")
+final_xgb = xgb.XGBClassifier(**best_params)
+final_xgb.fit(train_selected, y, verbose=False)
+test_xgb = final_xgb.predict_proba(test_selected)[:, 1]
+oof_predictions['xgb'] = oof_xgb
+test_predictions['xgb'] = test_xgb
+final_models['xgb'] = final_xgb
+print("[CHECKPOINT]    ✓ XGBoost training complete")
 
-print("\n[CHECKPOINT] 8.2: Optimizing global threshold for F1 score...")
-# Use median of fold thresholds as starting point (more robust than mean)
-median_fold_threshold = np.median(fold_thresholds)
-avg_fold_threshold = np.mean(fold_thresholds)
+# Model 2: LightGBM
+if HAS_LGB:
+    print("\n[CHECKPOINT] 8.2: Training LightGBM model...")
+    oof_lgb = np.zeros(len(y))
+    lgb_params = {
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'boosting_type': 'gbdt',
+        'num_leaves': 31,
+        'learning_rate': 0.01,
+        'feature_fraction': 0.8,
+        'bagging_fraction': 0.8,
+        'bagging_freq': 5,
+        'scale_pos_weight': 3.32,
+        'random_state': 42,
+        'verbose': -1
+    }
+    
+    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
+        if fold_idx == 0:
+            print(f"[CHECKPOINT]    Training LightGBM fold {fold_idx + 1}/10...")
+        X_train_fold = train_selected.iloc[train_idx]
+        X_val_fold = train_selected.iloc[val_idx]
+        y_train_fold = y.iloc[train_idx]
+        y_val_fold = y.iloc[val_idx]
+        
+        train_data = lgb.Dataset(X_train_fold, label=y_train_fold)
+        val_data = lgb.Dataset(X_val_fold, label=y_val_fold, reference=train_data)
+        model = lgb.train(lgb_params, train_data, num_boost_round=500, valid_sets=[val_data], callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)])
+        fold_probs = model.predict(X_val_fold)
+        oof_lgb[val_idx] = fold_probs
+    
+    train_data_full = lgb.Dataset(train_selected, label=y)
+    final_lgb = lgb.train(lgb_params, train_data_full, num_boost_round=500)
+    test_lgb = final_lgb.predict(test_selected)
+    oof_predictions['lgb'] = oof_lgb
+    test_predictions['lgb'] = test_lgb
+    final_models['lgb'] = final_lgb
+    print("[CHECKPOINT]    ✓ LightGBM training complete")
+else:
+    print("[CHECKPOINT]    ⚠️  LightGBM not available - skipping")
 
+# Model 3: CatBoost
+if HAS_CAT:
+    print("\n[CHECKPOINT] 8.3: Training CatBoost model...")
+    oof_cat = np.zeros(len(y))
+    cat_params = {
+        'iterations': 500,
+        'learning_rate': 0.01,
+        'depth': 6,
+        'loss_function': 'Logloss',
+        'eval_metric': 'Logloss',
+        'scale_pos_weight': 3.32,
+        'random_seed': 42,
+        'verbose': False
+    }
+    
+    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
+        if fold_idx == 0:
+            print(f"[CHECKPOINT]    Training CatBoost fold {fold_idx + 1}/10...")
+        X_train_fold = train_selected.iloc[train_idx]
+        X_val_fold = train_selected.iloc[val_idx]
+        y_train_fold = y.iloc[train_idx]
+        y_val_fold = y.iloc[val_idx]
+        
+        model = cb.CatBoostClassifier(**cat_params)
+        model.fit(X_train_fold, y_train_fold, eval_set=(X_val_fold, y_val_fold), early_stopping_rounds=50, verbose=False)
+        fold_probs = model.predict_proba(X_val_fold)[:, 1]
+        oof_cat[val_idx] = fold_probs
+    
+    final_cat = cb.CatBoostClassifier(**cat_params)
+    final_cat.fit(train_selected, y, verbose=False)
+    test_cat = final_cat.predict_proba(test_selected)[:, 1]
+    oof_predictions['cat'] = oof_cat
+    test_predictions['cat'] = test_cat
+    final_models['cat'] = final_cat
+    print("[CHECKPOINT]    ✓ CatBoost training complete")
+else:
+    print("[CHECKPOINT]    ⚠️  CatBoost not available - skipping")
+
+# Model 4: Neural Network (if DAE features available)
+if HAS_TF and train_dae_features is not None:
+    print("\n[CHECKPOINT] 8.4: Training Neural Network on DAE features...")
+    oof_nn = np.zeros(len(y))
+    
+    # Use top features + DAE features
+    key_features = [col for col in train_selected.columns if any(x in col for x in ['liab_prct', 'claim_est_payout', 'target_enc', 'high_subro'])]
+    if len(key_features) > 20:
+        key_features = key_features[:20]
+    
+    X_nn_train = np.concatenate([train_dae_features, train_selected[key_features].values], axis=1)
+    X_nn_test = np.concatenate([test_dae_features, test_selected[key_features].values], axis=1)
+    
+    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X_nn_train, y)):
+        if fold_idx == 0:
+            print(f"[CHECKPOINT]    Training NN fold {fold_idx + 1}/10...")
+        X_train_fold = X_nn_train[train_idx]
+        X_val_fold = X_nn_train[val_idx]
+        y_train_fold = y.iloc[train_idx].values
+        y_val_fold = y.iloc[val_idx].values
+        
+        inputs = Input(shape=(X_nn_train.shape[1],))
+        x = Dense(256, activation='relu')(inputs)
+        x = BatchNormalization()(x)
+        x = Dropout(0.3)(x)
+        x = Dense(128, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.3)(x)
+        x = Dense(64, activation='relu')(x)
+        outputs = Dense(1, activation='sigmoid')(x)
+        
+        model = Model(inputs, outputs)
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['AUC'])
+        model.fit(X_train_fold, y_train_fold, epochs=50, batch_size=256, 
+                 class_weight={0: 1, 1: 3.32}, verbose=0)
+        fold_probs = model.predict(X_val_fold, verbose=0).flatten()
+        oof_nn[val_idx] = fold_probs
+    
+    # Train final NN
+    inputs = Input(shape=(X_nn_train.shape[1],))
+    x = Dense(256, activation='relu')(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    x = Dense(64, activation='relu')(x)
+    outputs = Dense(1, activation='sigmoid')(x)
+    final_nn = Model(inputs, outputs)
+    final_nn.compile(optimizer='adam', loss='binary_crossentropy', metrics=['AUC'])
+    final_nn.fit(X_nn_train, y.values, epochs=50, batch_size=256, 
+                class_weight={0: 1, 1: 3.32}, verbose=0)
+    test_nn = final_nn.predict(X_nn_test, verbose=0).flatten()
+    oof_predictions['nn'] = oof_nn
+    test_predictions['nn'] = test_nn
+    final_models['nn'] = final_nn
+    print("[CHECKPOINT]    ✓ Neural Network training complete")
+else:
+    print("[CHECKPOINT]    ⚠️  Neural Network skipped (TensorFlow not available or no DAE features)")
+
+# Model 5: Linear Model (for diversity)
+print("\n[CHECKPOINT] 8.5: Training Linear model...")
+oof_linear = np.zeros(len(y))
+top_linear_features = feature_importance_df.head(30)['feature'].tolist()
+top_linear_features = [f for f in top_linear_features if f in train_selected.columns]
+
+for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
+    if fold_idx == 0:
+        print(f"[CHECKPOINT]    Training Linear fold {fold_idx + 1}/10...")
+    X_train_fold = train_selected[top_linear_features].iloc[train_idx]
+    X_val_fold = train_selected[top_linear_features].iloc[val_idx]
+    y_train_fold = y.iloc[train_idx]
+    y_val_fold = y.iloc[val_idx]
+    
+    model = LogisticRegression(class_weight={0: 1, 1: 3.32}, max_iter=1000, random_state=42)
+    model.fit(X_train_fold, y_train_fold)
+    fold_probs = model.predict_proba(X_val_fold)[:, 1]
+    oof_linear[val_idx] = fold_probs
+
+final_linear = LogisticRegression(class_weight={0: 1, 1: 3.32}, max_iter=1000, random_state=42)
+final_linear.fit(train_selected[top_linear_features], y)
+test_linear = final_linear.predict_proba(test_selected[top_linear_features])[:, 1]
+oof_predictions['linear'] = oof_linear
+test_predictions['linear'] = test_linear
+final_models['linear'] = final_linear
+print("[CHECKPOINT]    ✓ Linear model training complete")
+
+# Ensemble Blending (TIER 3.1)
+print("\n[CHECKPOINT] 8.6: Optimizing ensemble blend weights...")
+model_names = list(oof_predictions.keys())
+oof_stack = np.column_stack([oof_predictions[name] for name in model_names])
+
+def objective(weights):
+    weights = np.array(weights)
+    weights = weights / (weights.sum() + 1e-10)
+    blended = oof_stack @ weights
+    threshold = find_optimal_threshold(y, blended)
+    return -f1_score(y, (blended >= threshold).astype(int))
+
+bounds = [(0, 1)] * len(model_names)
+result = differential_evolution(objective, bounds, seed=42, maxiter=100, popsize=15, tol=1e-6)
+best_weights = result.x / (result.x.sum() + 1e-10)
+
+print(f"[CHECKPOINT]    ✓ Optimal blend weights:")
+for name, weight in zip(model_names, best_weights):
+    print(f"[CHECKPOINT]      {name}: {weight:.4f}")
+
+# Blend OOF predictions
+oof_preds = oof_stack @ best_weights
+
+# Calibration (TIER 3.3)
+print("\n[CHECKPOINT] 8.7: Calibrating probabilities...")
+try:
+    from sklearn.calibration import CalibratedClassifierCV
+    # Use a simple wrapper for calibration
+    class ProbWrapper:
+        def __init__(self, probs):
+            self.probs = probs.reshape(-1, 1)
+        def predict_proba(self, X):
+            return np.column_stack([1 - self.probs, self.probs])
+    
+    # Fit isotonic calibration
+    from sklearn.isotonic import IsotonicRegression
+    calibrator = IsotonicRegression(out_of_bounds='clip')
+    calibrator.fit(oof_preds, y)
+    oof_preds_calibrated = calibrator.predict(oof_preds)
+    oof_preds_calibrated = np.clip(oof_preds_calibrated, 0, 1)
+    print("[CHECKPOINT]    ✓ Calibration complete")
+    oof_preds = oof_preds_calibrated
+except Exception as e:
+    print(f"[CHECKPOINT]    ⚠️  Calibration failed: {str(e)}, using uncalibrated predictions")
+
+# Optimize threshold
+print("\n[CHECKPOINT] 8.8: Optimizing global threshold...")
+median_fold_threshold = np.median(fold_thresholds_xgb)
 precision, recall, pr_thresholds = precision_recall_curve(y, oof_preds)
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 f1_scores = np.nan_to_num(f1_scores, nan=0.0)
-
 best_idx = np.argmax(f1_scores)
 optimal_threshold = pr_thresholds[best_idx] if best_idx < len(pr_thresholds) else median_fold_threshold
 
-# Use median fold threshold as center for fine-tuning (more robust)
-# Focus on 0.18-0.28 range based on p=0.2316 prevalence
+# Fine-tune with finer grid (TIER 3.4)
 prob_lower = np.percentile(oof_preds, 5)
 prob_upper = np.percentile(oof_preds, 95)
-adaptive_min = max(0.15, min(prob_lower, median_fold_threshold - 0.10))
-adaptive_max = min(0.35, max(prob_upper, median_fold_threshold + 0.10))
-
+adaptive_min = max(0.15, min(prob_lower, optimal_threshold - 0.10))
+adaptive_max = min(0.35, max(prob_upper, optimal_threshold + 0.10))
 fine_thresholds = np.linspace(adaptive_min, adaptive_max, 201)
+
 best_threshold = optimal_threshold
 best_f1 = f1_score(y, (oof_preds >= optimal_threshold).astype(int))
-
 for thresh in fine_thresholds:
     f1 = f1_score(y, (oof_preds >= thresh).astype(int))
     if f1 > best_f1:
         best_f1 = f1
         best_threshold = thresh
 
-print("[CHECKPOINT]    ✓ Global threshold optimization complete")
-print(f"[CHECKPOINT]    Median fold threshold: {median_fold_threshold:.4f}")
-print(f"[CHECKPOINT]    Average fold threshold: {avg_fold_threshold:.4f}")
-print(f"[CHECKPOINT]    Optimized global threshold: {best_threshold:.4f}")
-
 final_f1 = f1_score(y, (oof_preds >= best_threshold).astype(int))
 final_auc = roc_auc_score(y, oof_preds)
 final_precision = precision_score(y, (oof_preds >= best_threshold).astype(int))
 final_recall = recall_score(y, (oof_preds >= best_threshold).astype(int))
 
-print(f"\n[CHECKPOINT] ✓ Step 8.2 complete: Threshold optimized")
-print(f"[CHECKPOINT] Performance metrics:")
-print(f"  Optimal threshold: {best_threshold:.4f}")
-print(f"  F1 Score: {final_f1:.5f}")
-print(f"  AUC: {final_auc:.5f}")
-print(f"  Precision: {final_precision:.5f}")
-print(f"  Recall: {final_recall:.5f}")
+print(f"[CHECKPOINT]    ✓ Threshold optimization complete")
+print(f"[CHECKPOINT]    Optimal threshold: {best_threshold:.4f}")
+print(f"[CHECKPOINT]    F1 Score: {final_f1:.5f}")
+print(f"[CHECKPOINT]    AUC: {final_auc:.5f}")
 
-print("\n[CHECKPOINT] 8.3: Training final model on full training data...")
-final_model = xgb.XGBClassifier(**best_params)
-final_model.fit(train_selected, y, verbose=False)
-print("[CHECKPOINT]    ✓ Final model trained")
+# Generate test predictions
+print("\n[CHECKPOINT] 8.9: Generating ensemble test predictions...")
+test_stack = np.column_stack([test_predictions[name] for name in model_names])
+test_preds_proba = test_stack @ best_weights
 
-print("\n[CHECKPOINT] 8.4: Generating predictions on test set...")
-test_preds_proba = final_model.predict_proba(test_selected)[:, 1]
-print("[CHECKPOINT]    ✓ Test probability predictions generated")
+# Apply calibration to test
+try:
+    test_preds_proba = calibrator.predict(test_preds_proba)
+    test_preds_proba = np.clip(test_preds_proba, 0, 1)
+except:
+    pass
 
-# Apply optimal threshold to convert probabilities to binary predictions
 test_preds_binary = (test_preds_proba >= best_threshold).astype(int)
-print(f"[CHECKPOINT]    ✓ Applied threshold {best_threshold:.4f} to convert to binary predictions")
+print(f"[CHECKPOINT]    ✓ Test predictions generated")
 print(f"[CHECKPOINT]    Binary predictions: {test_preds_binary.sum()} positives ({test_preds_binary.sum()/len(test_preds_binary)*100:.2f}%)")
 
-print(f"\n[CHECKPOINT] ✓ Step 8 complete: Final model training finished")
+print(f"\n[CHECKPOINT] ✓ Step 8 complete: Ensemble training finished")
 
 # ============================================================================
 # STEP 8.5: Visualize Model Performance
@@ -901,7 +1255,7 @@ fold_data = []
 for fold_idx in range(10):
     fold_data.append({
         'Fold': fold_idx + 1,
-        'Threshold': fold_thresholds[fold_idx],
+        'Threshold': fold_thresholds_xgb[fold_idx] if len(fold_thresholds_xgb) > fold_idx else best_threshold,
         'F1': fold_f1_scores[fold_idx]
     })
 fold_df = pd.DataFrame(fold_data)
@@ -941,7 +1295,8 @@ submission = pd.DataFrame({
     'subrogation': test_preds_binary
 })
 
-output_file = os.path.join(SCRIPT_DIR, 'target_encoding_submission.csv')
+f1_score_str = f"{final_f1:.5f}".replace('.', '_')
+output_file = os.path.join(SCRIPT_DIR, f'target_encoding_submission_f1_{f1_score_str}.csv')
 print(f"[CHECKPOINT] Saving submission to: {output_file}")
 submission.to_csv(output_file, index=False)
 
@@ -1074,11 +1429,12 @@ ax3.grid(axis='x', alpha=0.3)
 ax4 = fig.add_subplot(gs[2, 0])
 info_text = f"""
 Model Configuration:
-  • Algorithm: XGBoost
-  • Features Selected: {best_feature_count}
+  • Algorithm: Ensemble (XGBoost, LightGBM, CatBoost, NN, Linear)
+  • Features Selected: {best_feature_count} (+ DAE features if available)
   • Cross-Validation: 10-Fold Stratified
   • Optimal Threshold: {best_threshold:.4f}
   • scale_pos_weight: {best_params['scale_pos_weight']:.4f}
+  • Ensemble Models: {len(model_names)} models blended
 
 Training Data:
   • Total Samples: {len(y):,}
