@@ -2,17 +2,17 @@
 # MODEL IMPROVEMENT ROADMAP TO 0.71+ F1
 
 ## Current Performance
-- **Current F1**: 0.59886
-- **Current AUC**: 0.84207
+- **Current F1**: 0.57528
+- **Current AUC**: 0.84041
 - **Current Ranking**: Top 5-10% (based on competition benchmarks)
-- **Lift over baseline**: 1.59x improvement over all-1s prediction
+- **Lift over baseline**: 1.53x improvement over all-1s prediction
 
 ## Competition Context (from Probe Analysis)
 - **Test set prevalence**: 23.156% positive class
 - **Optimal scale_pos_weight**: 3.32 (currently using: 3.32)
-- **Optimal threshold range**: 0.18-0.28 (current: 0.3450)
+- **Optimal threshold range**: 0.18-0.28 (current: 0.4292)
 - **Realistic optimal F1**: 0.71-0.74 (typical winning range for this competition type)
-- **Gap to optimal**: 0.12114 F1 points
+- **Gap to optimal**: 0.14472 F1 points
 
 ## Path to 0.71+ F1: Priority-Ordered Action Items
 
@@ -215,7 +215,7 @@ For semi-supervised learning:
 
 | Stage | F1 Score | Action |
 |-------|----------|--------|
-| Current | 0.59886 | Baseline with current pipeline |
+| Current | 0.57528 | Baseline with current pipeline |
 | + TIER 1 | 0.63-0.65 | Quick wins implemented |
 | + TIER 2 | 0.67-0.70 | DAE + NN added |
 | + TIER 3 | 0.71-0.73 | Full ensemble + calibration |
@@ -245,9 +245,9 @@ For semi-supervised learning:
 
 ## Current Model Summary
 
-- Features: 48 selected from 93 engineered
+- Features: 50 selected from 93 engineered
 - Algorithm: XGBoost with 676 trees
-- Threshold: 0.3450 (optimized per fold)
+- Threshold: 0.4292 (optimized per fold)
 - Scale pos weight: 3.32
 - CV Strategy: 10-Fold Stratified
 
@@ -257,7 +257,7 @@ For semi-supervised learning:
 This is the easiest +0.02 F1 you'll get. Takes ~30 minutes to implement.
 
 ---
-Generated: 2025-11-20 18:37:34
-Current F1: 0.59886
+Generated: 2025-11-20 23:35:46
+Current F1: 0.57528
 Target F1: 0.71-0.74
-Gap: 0.12114
+Gap: 0.14472

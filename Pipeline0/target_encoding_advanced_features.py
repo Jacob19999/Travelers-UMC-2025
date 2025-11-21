@@ -92,12 +92,12 @@ print("[CHECKPOINT] Starting Step 1: Loading raw data files...")
 
 print("[CHECKPOINT] Loading training data...")
 train_df = pd.read_csv(TRAIN_FILE)
-print("[CHECKPOINT] ✓ Training data loaded")
+print("[CHECKPOINT] [OK] Training data loaded")
 
 print("[CHECKPOINT] Loading test data...")
 test_df = pd.read_csv(TEST_FILE)
 test_original = test_df.copy()
-print("[CHECKPOINT] ✓ Test data loaded")
+print("[CHECKPOINT] [OK] Test data loaded")
 
 print(f"\n[CHECKPOINT] Data shapes:")
 print(f"  Train shape: {train_df.shape}")
@@ -108,11 +108,11 @@ print("[CHECKPOINT] Extracting target variable...")
 y = train_df[TARGET_COL].astype(int)
 train_df = train_df.drop(columns=[TARGET_COL, ID_COL], errors='ignore')
 test_df = test_df.drop(columns=[ID_COL], errors='ignore')
-print("[CHECKPOINT] ✓ Target extracted and ID columns removed")
+print("[CHECKPOINT] [OK] Target extracted and ID columns removed")
 
 print(f"\n[CHECKPOINT] Class distribution:")
 print(y.value_counts(normalize=True))
-print("[CHECKPOINT] ✓ Step 1 complete: Data loaded successfully")
+print("[CHECKPOINT] [OK] Step 1 complete: Data loaded successfully")
 
 # ============================================================================
 # STEP 2: Target Encoding with Cross-Validation
@@ -181,7 +181,7 @@ def target_encode_cv(train_df, test_df, y, categorical_cols, cv_folds=5, smoothi
         test_values = test_df[col].map(test_smoothed_means).fillna(global_mean)
         test_encoded[f'{col}_target_enc'] = test_values
         
-        print(f"[CHECKPOINT]    ✓ {col} encoding complete (target + frequency)")
+        print(f"[CHECKPOINT]    [OK] {col} encoding complete (target + frequency)")
     
     return train_encoded, test_encoded
 
@@ -194,7 +194,7 @@ train_encoded, test_encoded = target_encode_cv(
     train_df, test_df, y, categorical_cols, cv_folds=5, smoothing=1.0
 )
 
-print(f"\n[CHECKPOINT] ✓ Step 2 complete: Target encoding finished")
+print(f"\n[CHECKPOINT] [OK] Step 2 complete: Target encoding finished")
 print(f"[CHECKPOINT] Added {len(categorical_cols)} target-encoded features.")
 
 # ============================================================================
@@ -337,17 +337,17 @@ def create_interaction_features(df):
 print("\n[CHECKPOINT] 3.1: Creating time-based features from claim_date...")
 train_encoded = create_time_features(train_encoded, 'claim_date')
 test_encoded = create_time_features(test_encoded, 'claim_date')
-print("[CHECKPOINT]    ✓ Time features created")
+print("[CHECKPOINT]    [OK] Time features created")
 
 print("\n[CHECKPOINT] 3.2: Creating domain-specific features (risk scores, ratios, categories)...")
 train_encoded = create_domain_features(train_encoded)
 test_encoded = create_domain_features(test_encoded)
-print("[CHECKPOINT]    ✓ Domain features created")
+print("[CHECKPOINT]    [OK] Domain features created")
 
 print("\n[CHECKPOINT] 3.3: Creating interaction features...")
 train_encoded = create_interaction_features(train_encoded)
 test_encoded = create_interaction_features(test_encoded)
-print("[CHECKPOINT]    ✓ Interaction features created")
+print("[CHECKPOINT]    [OK] Interaction features created")
 
 print("\n[CHECKPOINT] 3.4: Creating clustering features...")
 # Identify top numeric features for clustering
@@ -381,9 +381,9 @@ if len(numeric_cols) > 0:
         train_encoded[f'cluster_{i}'] = (train_cluster_labels == i).astype(int)
         test_encoded[f'cluster_{i}'] = (test_cluster_labels == i).astype(int)
     
-    print(f"[CHECKPOINT]    ✓ Created {n_clusters} cluster membership features")
+    print(f"[CHECKPOINT]    [OK] Created {n_clusters} cluster membership features")
 else:
-    print("[CHECKPOINT]    ⚠️  No numeric features available for clustering")
+    print("[CHECKPOINT]    [WARNING]  No numeric features available for clustering")
 
 print("\n[CHECKPOINT] 3.5: Creating aggregation features...")
 # Create groupby statistics for numeric features grouped by original categoricals
@@ -435,11 +435,11 @@ if len(original_cat_cols) > 0 and len(numeric_cols_for_agg) > 0:
                 except:
                     continue
     
-    print(f"[CHECKPOINT]    ✓ Created {agg_count} aggregation features (mean/std/median/min/max) for {len(top_cats)} categoricals × {len(top_nums)} numerics")
+    print(f"[CHECKPOINT]    [OK] Created {agg_count} aggregation features (mean/std/median/min/max) for {len(top_cats)} categoricals × {len(top_nums)} numerics")
 else:
-    print("[CHECKPOINT]    ⚠️  Insufficient features for aggregation")
+    print("[CHECKPOINT]    [WARNING]  Insufficient features for aggregation")
 
-print(f"\n[CHECKPOINT] ✓ Step 3 complete: Feature engineering finished")
+print(f"\n[CHECKPOINT] [OK] Step 3 complete: Feature engineering finished")
 print(f"[CHECKPOINT] Feature counts:")
 print(f"  Train features: {train_encoded.shape[1]}")
 print(f"  Test features: {test_encoded.shape[1]}")
@@ -464,7 +464,7 @@ for col in cols_to_drop:
         if col in test_encoded.columns:
             test_encoded = test_encoded.drop(columns=[col])
 
-print(f"[CHECKPOINT] ✓ Step 4 complete: Original categorical columns removed")
+print(f"[CHECKPOINT] [OK] Step 4 complete: Original categorical columns removed")
 print(f"[CHECKPOINT] Remaining features: {train_encoded.shape[1]}")
 
 # ============================================================================
@@ -501,8 +501,8 @@ def cap_outliers_iqr(df, factor=1.5):
 print("\n[CHECKPOINT] 5.1: Outlier capping (IQR method)...")
 train_processed, outliers_capped = cap_outliers_iqr(train_encoded, factor=1.5)
 test_processed, outliers_capped_test = cap_outliers_iqr(test_encoded, factor=1.5)
-print(f"[CHECKPOINT]    ✓ Capped {outliers_capped} outliers in training data")
-print(f"[CHECKPOINT]    ✓ Capped {outliers_capped_test} outliers in test data")
+print(f"[CHECKPOINT]    [OK] Capped {outliers_capped} outliers in training data")
+print(f"[CHECKPOINT]    [OK] Capped {outliers_capped_test} outliers in test data")
 
 print("\n[CHECKPOINT] 5.2: Missing value imputation (median strategy)...")
 numeric_cols = train_processed.select_dtypes(include=[np.number]).columns
@@ -517,7 +517,7 @@ test_processed = pd.DataFrame(
     columns=test_processed.columns,
     index=test_processed.index
 )
-print("[CHECKPOINT]    ✓ Missing values imputed")
+print("[CHECKPOINT]    [OK] Missing values imputed")
 
 print("\n[CHECKPOINT] 5.3: Removing low variance features...")
 variance_selector = VarianceThreshold(threshold=0.01)
@@ -525,7 +525,7 @@ train_var_filtered = variance_selector.fit_transform(train_processed)
 test_var_filtered = variance_selector.transform(test_processed)
 low_var_features = train_processed.columns[~variance_selector.get_support()].tolist()
 if len(low_var_features) > 0:
-    print(f"[CHECKPOINT]    ✓ Removed {len(low_var_features)} low variance features")
+    print(f"[CHECKPOINT]    [OK] Removed {len(low_var_features)} low variance features")
     train_processed = pd.DataFrame(
         train_var_filtered,
         columns=train_processed.columns[variance_selector.get_support()]
@@ -535,20 +535,20 @@ if len(low_var_features) > 0:
         columns=test_processed.columns[variance_selector.get_support()]
     )
 else:
-    print("[CHECKPOINT]    ✓ No low variance features to remove")
+    print("[CHECKPOINT]    [OK] No low variance features to remove")
 
 print("\n[CHECKPOINT] 5.4: Removing highly correlated features...")
 corr_matrix = train_processed.corr().abs()
 upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 high_corr_features = [column for column in upper_tri.columns if any(upper_tri[column] > 0.95)]
 if len(high_corr_features) > 0:
-    print(f"[CHECKPOINT]    ✓ Removed {len(high_corr_features)} highly correlated features")
+    print(f"[CHECKPOINT]    [OK] Removed {len(high_corr_features)} highly correlated features")
     train_processed = train_processed.drop(columns=high_corr_features)
     test_processed = test_processed.drop(columns=[col for col in high_corr_features if col in test_processed.columns])
 else:
-    print("[CHECKPOINT]    ✓ No highly correlated features to remove")
+    print("[CHECKPOINT]    [OK] No highly correlated features to remove")
 
-print(f"\n[CHECKPOINT] ✓ Step 5 complete: Preprocessing finished")
+print(f"\n[CHECKPOINT] [OK] Step 5 complete: Preprocessing finished")
 print(f"[CHECKPOINT] Final feature count: {train_processed.shape[1]}")
 
 # Align test columns with train
@@ -578,17 +578,18 @@ def rank_gauss_transform(df_train, df_test):
     
     if len(numeric_cols) > 0:
         print(f"[CHECKPOINT]    Applying RankGauss to {len(numeric_cols)} numeric features...")
+        # print(f"[CHECKPOINT]    Features: {numeric_cols[:5]} ...")
         rank_gauss = QuantileTransformer(output_distribution='normal', n_quantiles=1000, random_state=42)
         df_train_rg[numeric_cols] = rank_gauss.fit_transform(df_train_rg[numeric_cols])
         df_test_rg[numeric_cols] = rank_gauss.transform(df_test_rg[numeric_cols])
-        print(f"[CHECKPOINT]    ✓ RankGauss transformation complete")
+        print(f"[CHECKPOINT]    [OK] RankGauss transformation complete")
     else:
-        print("[CHECKPOINT]    ⚠️  No numeric features found for RankGauss")
+        print("[CHECKPOINT]    [WARNING]  No numeric features found for RankGauss")
     
     return df_train_rg, df_test_rg
 
 train_processed, test_processed = rank_gauss_transform(train_processed, test_processed)
-print(f"[CHECKPOINT] ✓ Step 5.5 complete: RankGauss transformation applied")
+print(f"[CHECKPOINT] [OK] Step 5.5 complete: RankGauss transformation applied")
 
 # ============================================================================
 # STEP 6: Feature Selection
@@ -617,11 +618,11 @@ selector_model = xgb.XGBClassifier(
     tree_method='hist'
 )
 selector_model.fit(train_processed, y)
-print("[CHECKPOINT]    ✓ Tree importance computed (using final model hyperparameters)")
+print("[CHECKPOINT]    [OK] Tree importance computed (using final model hyperparameters)")
 
 print("\n[CHECKPOINT] 6.2: Computing mutual information scores...")
 mi_scores = mutual_info_classif(train_processed, y, random_state=42, n_neighbors=5)
-print("[CHECKPOINT]    ✓ Mutual information computed")
+print("[CHECKPOINT]    [OK] Mutual information computed")
 
 feature_importance_df = pd.DataFrame({
     'feature': train_processed.columns,
@@ -647,24 +648,43 @@ print(f"\n[CHECKPOINT] 6.3: Combining importance scores and selecting top featur
 print(f"\n[CHECKPOINT] Top 20 features:")
 print(feature_importance_df.head(20)[['feature', 'combined_score']].to_string(index=False))
 
-desired_feature_count = 48
+desired_feature_count = 50
 available_feature_count = len(feature_importance_df)
 best_feature_count = min(desired_feature_count, available_feature_count)
 
 print(f"[CHECKPOINT]    Available features: {available_feature_count}")
 print(f"[CHECKPOINT]    Desired features: {desired_feature_count}")
-print(f"[CHECKPOINT]    Selecting top {best_feature_count} features...")
+print(f"[CHECKPOINT]    Selecting top {best_feature_count} features (ensuring Golden Features are kept)...")
+
+# Golden Features that must be included
+golden_features = [
+    'recoverable_amount', 
+    'evidence_score', 
+    'fault_clarity', 
+    'high_value_recoverable', 
+    'high_subro_risk',
+    'liab_prct',
+    'claim_est_payout'
+]
+# Filter to ones that actually exist in processed data
+golden_features = [f for f in golden_features if f in train_processed.columns]
 
 top_features = feature_importance_df.head(best_feature_count)['feature'].tolist()
 
-selector = SelectFromModel(selector_model, max_features=best_feature_count, threshold=-np.inf)
-train_selected = selector.fit_transform(train_processed, y)
-test_selected = selector.transform(test_processed)
+# Add golden features if missing
+for f in golden_features:
+    if f not in top_features:
+        print(f"[CHECKPOINT]      + Forcing inclusion of golden feature: {f}")
+        top_features.append(f)
 
-train_selected = pd.DataFrame(train_selected, columns=top_features, index=train_processed.index)
-test_selected = pd.DataFrame(test_selected, columns=top_features, index=test_processed.index)
+# Remove duplicates
+top_features = list(dict.fromkeys(top_features))
 
-print(f"[CHECKPOINT] ✓ Step 6 complete: Selected top {best_feature_count} features")
+# Select columns directly instead of using SelectFromModel
+train_selected = train_processed[top_features].copy()
+test_selected = test_processed[top_features].copy()
+
+print(f"[CHECKPOINT] [OK] Step 6 complete: Selected {len(top_features)} features (including {len(golden_features)} forced golden features)")
 
 # ============================================================================
 # STEP 6.5: Visualize Feature Importance
@@ -717,10 +737,10 @@ axes[1, 1].grid(axis='x', alpha=0.3)
 plt.tight_layout()
 feature_importance_plot_path = os.path.join(SCRIPT_DIR, 'feature_importance_plots.png')
 plt.savefig(feature_importance_plot_path, dpi=300, bbox_inches='tight')
-print(f"[CHECKPOINT] ✓ Saved feature importance plots to: {feature_importance_plot_path}")
+print(f"[CHECKPOINT] [OK] Saved feature importance plots to: {feature_importance_plot_path}")
 plt.close()
 
-print(f"[CHECKPOINT] ✓ Step 6.5 complete: Feature importance visualizations created")
+print(f"[CHECKPOINT] [OK] Step 6.5 complete: Feature importance visualizations created")
 
 # ============================================================================
 # STEP 6.6: DAE Feature Extraction (TIER 2.1)
@@ -736,15 +756,15 @@ test_dae_features = None
 if HAS_TF:
     print("[CHECKPOINT] TensorFlow available - building DAE...")
     
-    def build_dae(input_dim, bottleneck_dim=256, noise_std=0.15):
+    def build_dae(input_dim, bottleneck_dim=64, noise_std=0.10):
         """Build Denoising Autoencoder"""
         inputs = Input(shape=(input_dim,))
         x = GaussianNoise(noise_std)(inputs)
-        x = Dense(512, activation='relu')(x)
-        x = Dropout(0.5)(x)
+        x = Dense(256, activation='relu')(x)
+        x = Dropout(0.3)(x)
         encoded = Dense(bottleneck_dim, activation='relu', name='bottleneck')(x)
-        x = Dense(512, activation='relu')(encoded)
-        x = Dropout(0.5)(x)
+        x = Dense(256, activation='relu')(encoded)
+        x = Dropout(0.3)(x)
         outputs = Dense(input_dim, activation='linear')(x)
         
         dae = Model(inputs, outputs)
@@ -762,7 +782,7 @@ if HAS_TF:
             tf.random.set_seed(42 + variant * 111)
             np.random.seed(42 + variant * 111)
             
-            dae, encoder = build_dae(input_dim, bottleneck_dim=256, noise_std=0.15)
+            dae, encoder = build_dae(input_dim, bottleneck_dim=64, noise_std=0.10)
             
             from tensorflow.keras.callbacks import EarlyStopping
             early_stop = EarlyStopping(monitor='loss', patience=5, restore_best_weights=True, verbose=0)
@@ -780,7 +800,7 @@ if HAS_TF:
             
             all_train_features.append(train_dae)
             all_test_features.append(test_dae)
-            print(f"[CHECKPOINT]    ✓ DAE variant {variant + 1} complete")
+            print(f"[CHECKPOINT]    [OK] DAE variant {variant + 1} complete")
         
         # Concatenate all variants
         train_combined = np.hstack(all_train_features)
@@ -789,10 +809,11 @@ if HAS_TF:
         return train_combined, test_combined
     
     try:
+        print("[CHECKPOINT]    Using full processed dataset for DAE training (better representation learning)...")
         train_dae_features, test_dae_features = extract_dae_features(
-            train_selected, test_selected, n_variants=2
+            train_processed, test_processed, n_variants=2
         )
-        print(f"[CHECKPOINT] ✓ DAE features extracted: {train_dae_features.shape[1]} features")
+        print(f"[CHECKPOINT] [OK] DAE features extracted: {train_dae_features.shape[1]} features")
         
         # Add DAE features to selected features
         dae_train_df = pd.DataFrame(
@@ -808,14 +829,14 @@ if HAS_TF:
         
         train_selected = pd.concat([train_selected, dae_train_df], axis=1)
         test_selected = pd.concat([test_selected, dae_test_df], axis=1)
-        print(f"[CHECKPOINT] ✓ DAE features concatenated. New feature count: {train_selected.shape[1]}")
+        print(f"[CHECKPOINT] [OK] DAE features concatenated. New feature count: {train_selected.shape[1]}")
     except Exception as e:
-        print(f"[CHECKPOINT] ⚠️  DAE feature extraction failed: {str(e)}")
+        print(f"[CHECKPOINT] [WARNING]  DAE feature extraction failed: {str(e)}")
         print("[CHECKPOINT]    Continuing without DAE features...")
 else:
-    print("[CHECKPOINT] ⚠️  TensorFlow not available - skipping DAE features")
+    print("[CHECKPOINT] [WARNING]  TensorFlow not available - skipping DAE features")
 
-print(f"[CHECKPOINT] ✓ Step 6.6 complete: DAE feature extraction finished")
+print(f"[CHECKPOINT] [OK] Step 6.6 complete: DAE feature extraction finished")
 
 # ============================================================================
 # STEP 7: Load Best Hyperparameters (Hard-coded from 1500-trial optimization)
@@ -849,7 +870,7 @@ best_params = {
     'tree_method': 'hist'
 }
 
-print(f"\n[CHECKPOINT] ✓ Step 7 complete: Best hyperparameters loaded")
+print(f"\n[CHECKPOINT] [OK] Step 7 complete: Best hyperparameters loaded")
 print(f"[CHECKPOINT] Best parameters: {best_params}")
 
 # ============================================================================
@@ -876,34 +897,53 @@ def find_optimal_threshold(y_true, y_proba):
     best_idx = np.argmax(f1_scores)
     return thresholds[best_idx] if best_idx < len(thresholds) else 0.3
 
-# Model 1: XGBoost
-print("\n[CHECKPOINT] 8.1: Training XGBoost model...")
+# Model 1: XGBoost (Seed Bagging)
+print("\n[CHECKPOINT] 8.1: Training XGBoost model (Seed Bagging)...")
 oof_xgb = np.zeros(len(y))
+test_xgb = np.zeros(len(test_selected))
 fold_thresholds_xgb = []
 
-for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
-    if fold_idx == 0:
-        print(f"[CHECKPOINT]    Training XGBoost fold {fold_idx + 1}/10...")
-    X_train_fold = train_selected.iloc[train_idx]
-    X_val_fold = train_selected.iloc[val_idx]
-    y_train_fold = y.iloc[train_idx]
-    y_val_fold = y.iloc[val_idx]
-    
-    model = xgb.XGBClassifier(**best_params)
-    model.fit(X_train_fold, y_train_fold, eval_set=[(X_val_fold, y_val_fold)], verbose=False)
-    fold_probs = model.predict_proba(X_val_fold)[:, 1]
-    oof_xgb[val_idx] = fold_probs
-    
-    fold_thresh = find_optimal_threshold(y_val_fold, fold_probs)
-    fold_thresholds_xgb.append(fold_thresh)
+# Seeds for bagging (reduces variance)
+seeds = [42, 2023, 2024]
 
-final_xgb = xgb.XGBClassifier(**best_params)
-final_xgb.fit(train_selected, y, verbose=False)
-test_xgb = final_xgb.predict_proba(test_selected)[:, 1]
+for seed in seeds:
+    print(f"[CHECKPOINT]    Training XGBoost with seed {seed}...")
+    seed_params = best_params.copy()
+    seed_params['random_state'] = seed
+    
+    oof_seed = np.zeros(len(y))
+    test_seed = np.zeros(len(test_selected))
+    
+    # CV Loop for this seed
+    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
+        X_train_fold = train_selected.iloc[train_idx]
+        X_val_fold = train_selected.iloc[val_idx]
+        y_train_fold = y.iloc[train_idx]
+        y_val_fold = y.iloc[val_idx]
+        
+        model = xgb.XGBClassifier(**seed_params)
+        model.fit(X_train_fold, y_train_fold, eval_set=[(X_val_fold, y_val_fold)], verbose=False)
+        fold_probs = model.predict_proba(X_val_fold)[:, 1]
+        oof_seed[val_idx] = fold_probs
+        
+        if seed == 42: # Only track thresholds for main seed
+            fold_thresh = find_optimal_threshold(y_val_fold, fold_probs)
+            fold_thresholds_xgb.append(fold_thresh)
+            
+    # Train final model for this seed
+    final_model = xgb.XGBClassifier(**seed_params)
+    final_model.fit(train_selected, y, verbose=False)
+    test_seed = final_model.predict_proba(test_selected)[:, 1]
+    
+    # Add to average
+    oof_xgb += oof_seed / len(seeds)
+    test_xgb += test_seed / len(seeds)
+
+# We don't save individual final_models since we bagged them, but we can save one for reference
+final_models['xgb'] = final_model 
 oof_predictions['xgb'] = oof_xgb
 test_predictions['xgb'] = test_xgb
-final_models['xgb'] = final_xgb
-print("[CHECKPOINT]    ✓ XGBoost training complete")
+print("[CHECKPOINT]    [OK] XGBoost training complete (3-seed bagging)")
 
 # Model 2: LightGBM
 if HAS_LGB:
@@ -943,23 +983,24 @@ if HAS_LGB:
     oof_predictions['lgb'] = oof_lgb
     test_predictions['lgb'] = test_lgb
     final_models['lgb'] = final_lgb
-    print("[CHECKPOINT]    ✓ LightGBM training complete")
+    print("[CHECKPOINT]    [OK] LightGBM training complete")
 else:
-    print("[CHECKPOINT]    ⚠️  LightGBM not available - skipping")
+    print("[CHECKPOINT]    [WARNING]  LightGBM not available - skipping")
 
 # Model 3: CatBoost
 if HAS_CAT:
     print("\n[CHECKPOINT] 8.3: Training CatBoost model...")
     oof_cat = np.zeros(len(y))
     cat_params = {
-        'iterations': 500,
+        'iterations': 750,
         'learning_rate': 0.01,
         'depth': 6,
         'loss_function': 'Logloss',
         'eval_metric': 'Logloss',
         'scale_pos_weight': 3.32,
         'random_seed': 42,
-        'verbose': False
+        'verbose': False,
+        'allow_writing_files': False
     }
     
     for fold_idx, (train_idx, val_idx) in enumerate(cv.split(train_selected, y)):
@@ -971,7 +1012,7 @@ if HAS_CAT:
         y_val_fold = y.iloc[val_idx]
         
         model = cb.CatBoostClassifier(**cat_params)
-        model.fit(X_train_fold, y_train_fold, eval_set=(X_val_fold, y_val_fold), early_stopping_rounds=50, verbose=False)
+        model.fit(X_train_fold, y_train_fold, eval_set=(X_val_fold, y_val_fold), early_stopping_rounds=100, verbose=False)
         fold_probs = model.predict_proba(X_val_fold)[:, 1]
         oof_cat[val_idx] = fold_probs
     
@@ -981,9 +1022,9 @@ if HAS_CAT:
     oof_predictions['cat'] = oof_cat
     test_predictions['cat'] = test_cat
     final_models['cat'] = final_cat
-    print("[CHECKPOINT]    ✓ CatBoost training complete")
+    print("[CHECKPOINT]    [OK] CatBoost training complete")
 else:
-    print("[CHECKPOINT]    ⚠️  CatBoost not available - skipping")
+    print("[CHECKPOINT]    [WARNING]  CatBoost not available - skipping")
 
 # Model 4: Neural Network (if DAE features available)
 if HAS_TF and train_dae_features is not None:
@@ -1041,9 +1082,9 @@ if HAS_TF and train_dae_features is not None:
     oof_predictions['nn'] = oof_nn
     test_predictions['nn'] = test_nn
     final_models['nn'] = final_nn
-    print("[CHECKPOINT]    ✓ Neural Network training complete")
+    print("[CHECKPOINT]    [OK] Neural Network training complete")
 else:
-    print("[CHECKPOINT]    ⚠️  Neural Network skipped (TensorFlow not available or no DAE features)")
+    print("[CHECKPOINT]    [WARNING]  Neural Network skipped (TensorFlow not available or no DAE features)")
 
 # Model 5: Linear Model (for diversity)
 print("\n[CHECKPOINT] 8.5: Training Linear model...")
@@ -1070,7 +1111,7 @@ test_linear = final_linear.predict_proba(test_selected[top_linear_features])[:, 
 oof_predictions['linear'] = oof_linear
 test_predictions['linear'] = test_linear
 final_models['linear'] = final_linear
-print("[CHECKPOINT]    ✓ Linear model training complete")
+print("[CHECKPOINT]    [OK] Linear model training complete")
 
 # Ensemble Blending (TIER 3.1)
 print("\n[CHECKPOINT] 8.6: Optimizing ensemble blend weights...")
@@ -1088,12 +1129,16 @@ bounds = [(0, 1)] * len(model_names)
 result = differential_evolution(objective, bounds, seed=42, maxiter=100, popsize=15, tol=1e-6)
 best_weights = result.x / (result.x.sum() + 1e-10)
 
-print(f"[CHECKPOINT]    ✓ Optimal blend weights:")
+print(f"[CHECKPOINT]    [OK] Optimal blend weights:")
 for name, weight in zip(model_names, best_weights):
     print(f"[CHECKPOINT]      {name}: {weight:.4f}")
 
 # Blend OOF predictions
 oof_preds = oof_stack @ best_weights
+
+# Calculate initial test predictions for pseudo-labeling
+test_stack = np.column_stack([test_predictions[name] for name in model_names])
+test_preds_proba = test_stack @ best_weights
 
 # Calibration (TIER 3.3)
 print("\n[CHECKPOINT] 8.7: Calibrating probabilities...")
@@ -1106,68 +1151,137 @@ try:
         def predict_proba(self, X):
             return np.column_stack([1 - self.probs, self.probs])
     
-    # Fit isotonic calibration
-    from sklearn.isotonic import IsotonicRegression
-    calibrator = IsotonicRegression(out_of_bounds='clip')
-    calibrator.fit(oof_preds, y)
-    oof_preds_calibrated = calibrator.predict(oof_preds)
-    oof_preds_calibrated = np.clip(oof_preds_calibrated, 0, 1)
-    print("[CHECKPOINT]    ✓ Calibration complete")
+    # Fit calibration (Sigmoid/Platt Scaling is often better for F1 than Isotonic on small data)
+    from sklearn.linear_model import LogisticRegression as LR_Calib
+    calibrator = LR_Calib(C=1.0, solver='lbfgs')
+    calibrator.fit(oof_preds.reshape(-1, 1), y)
+    oof_preds_calibrated = calibrator.predict_proba(oof_preds.reshape(-1, 1))[:, 1]
+    print("[CHECKPOINT]    [OK] Calibration complete (Sigmoid/Platt Scaling)")
     oof_preds = oof_preds_calibrated
+    
+    # Also calibrate test predictions
+    test_preds_proba = calibrator.predict_proba(test_preds_proba.reshape(-1, 1))[:, 1]
 except Exception as e:
-    print(f"[CHECKPOINT]    ⚠️  Calibration failed: {str(e)}, using uncalibrated predictions")
+    print(f"[CHECKPOINT]    [WARNING]  Calibration failed: {str(e)}, using uncalibrated predictions")
 
-# Optimize threshold
-print("\n[CHECKPOINT] 8.8: Optimizing global threshold...")
+# ============================================================================
+# STEP 8.8: Pseudo-Labeling (TIER 4.1)
+# ============================================================================
+print("\n" + "="*80)
+print("STEP 8.8: PSEUDO-LABELING")
+print("="*80)
+print("[CHECKPOINT] Starting Step 8.8: Pseudo-labeling refinement...")
+
+# Select high confidence predictions from the ensemble
+# Using strict thresholds to avoid noise
+high_conf_threshold_pos = 0.95
+high_conf_threshold_neg = 0.05
+
+test_probs = test_preds_proba  # From ensemble
+high_conf_indices = np.where((test_probs >= high_conf_threshold_pos) | (test_probs <= high_conf_threshold_neg))[0]
+
+if len(high_conf_indices) > 100:  # Ensure we have enough samples
+    print(f"[CHECKPOINT]    Found {len(high_conf_indices)} high-confidence test samples for pseudo-labeling")
+    
+    # Create pseudo-labeled dataset
+    X_test_pseudo = test_selected.iloc[high_conf_indices]
+    # Convert probabilities to binary labels (0 or 1)
+    y_test_pseudo = (test_probs[high_conf_indices] >= 0.5).astype(int)
+    
+    # Combine with original training data
+    X_train_augmented = pd.concat([train_selected, X_test_pseudo], axis=0)
+    y_train_augmented = pd.concat([y, pd.Series(y_test_pseudo)], axis=0)
+    
+    print(f"[CHECKPOINT]    Augmented training set size: {len(X_train_augmented)} (+{len(high_conf_indices)} samples)")
+    
+    # Retrain XGBoost on augmented data (using best params)
+    print("[CHECKPOINT]    Retraining XGBoost on augmented data...")
+    
+    # Adjust scale_pos_weight for augmented data if needed, but sticking to original is usually safe
+    xgb_pseudo = xgb.XGBClassifier(**best_params)
+    xgb_pseudo.fit(X_train_augmented, y_train_augmented, verbose=False)
+    
+    # Predict on full test set
+    test_preds_pseudo = xgb_pseudo.predict_proba(test_selected)[:, 1]
+    
+    # Blend with original ensemble (Weighted average)
+    # Give 30% weight to pseudo-labeling result, 70% to original ensemble
+    print("[CHECKPOINT]    Blending pseudo-label predictions (30%) with ensemble (70%)...")
+    # Update test predictions
+    test_preds_proba = 0.70 * test_preds_proba + 0.30 * test_preds_pseudo
+    print("[CHECKPOINT]    [OK] Pseudo-labeling complete")
+else:
+    print(f"[CHECKPOINT]    [WARNING]  Only {len(high_conf_indices)} high-confidence samples found. Skipping pseudo-labeling.")
+
+# ============================================================================
+# STEP 8.9: Optimizing global threshold (Rank-Based)
+# ============================================================================
+print("\n[CHECKPOINT] 8.9: Optimizing threshold using Rank-Based method...")
+
+# Calculate best_threshold from CV first (was originally calculated here)
 median_fold_threshold = np.median(fold_thresholds_xgb)
 precision, recall, pr_thresholds = precision_recall_curve(y, oof_preds)
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 f1_scores = np.nan_to_num(f1_scores, nan=0.0)
 best_idx = np.argmax(f1_scores)
-optimal_threshold = pr_thresholds[best_idx] if best_idx < len(pr_thresholds) else median_fold_threshold
+cv_optimal_threshold = pr_thresholds[best_idx] if best_idx < len(pr_thresholds) else median_fold_threshold
 
-# Fine-tune with finer grid (TIER 3.4)
-prob_lower = np.percentile(oof_preds, 5)
-prob_upper = np.percentile(oof_preds, 95)
-adaptive_min = max(0.15, min(prob_lower, optimal_threshold - 0.10))
-adaptive_max = min(0.35, max(prob_upper, optimal_threshold + 0.10))
-fine_thresholds = np.linspace(adaptive_min, adaptive_max, 201)
+print(f"[CHECKPOINT]    CV Optimal Threshold: {cv_optimal_threshold:.6f}")
 
-best_threshold = optimal_threshold
-best_f1 = f1_score(y, (oof_preds >= optimal_threshold).astype(int))
-for thresh in fine_thresholds:
-    f1 = f1_score(y, (oof_preds >= thresh).astype(int))
-    if f1 > best_f1:
-        best_f1 = f1
-        best_threshold = thresh
+# Strategy: Align predicted positive rate with expected test prevalence
+# Competition context suggests ~23-24% positive rate in test
+# For F1 maximization, we often want slightly higher recall, so target ~26-28%
+target_positive_rate = 0.27  # Conservative starting point
 
+# Calculate threshold that gives us exactly the target positive rate
+test_preds_sorted = np.sort(test_preds_proba)
+target_idx = int(len(test_preds_sorted) * (1 - target_positive_rate))
+rank_threshold = test_preds_sorted[target_idx]
+
+print(f"[CHECKPOINT]    Target positive rate: {target_positive_rate*100:.1f}%")
+print(f"[CHECKPOINT]    Calculated Rank Threshold: {rank_threshold:.6f}")
+
+# Use the average of CV threshold and Rank threshold for safety, but weight towards Rank
+# if the discrepancy is large
+if abs(rank_threshold - cv_optimal_threshold) > 0.1:
+    print("[CHECKPOINT]    [WARNING] Large discrepancy between CV and Rank thresholds - Trusting Rank-Based more")
+    final_threshold = 0.7 * rank_threshold + 0.3 * cv_optimal_threshold
+else:
+    final_threshold = 0.5 * rank_threshold + 0.5 * cv_optimal_threshold
+
+print(f"[CHECKPOINT]    Final Selected Threshold: {final_threshold:.6f}")
+
+best_threshold = final_threshold # Override for subsequent steps
+
+# Recalculate metrics with new threshold on OOF (just for logging)
 final_f1 = f1_score(y, (oof_preds >= best_threshold).astype(int))
-final_auc = roc_auc_score(y, oof_preds)
 final_precision = precision_score(y, (oof_preds >= best_threshold).astype(int))
 final_recall = recall_score(y, (oof_preds >= best_threshold).astype(int))
+final_auc = roc_auc_score(y, oof_preds) # Calculate AUC here too
 
-print(f"[CHECKPOINT]    ✓ Threshold optimization complete")
-print(f"[CHECKPOINT]    Optimal threshold: {best_threshold:.4f}")
-print(f"[CHECKPOINT]    F1 Score: {final_f1:.5f}")
-print(f"[CHECKPOINT]    AUC: {final_auc:.5f}")
+print(f"[CHECKPOINT]    New OOF F1 Score: {final_f1:.5f}")
+print(f"[CHECKPOINT]    New OOF Precision: {final_precision:.5f}")
+print(f"[CHECKPOINT]    New OOF Recall: {final_recall:.5f}")
+print(f"[CHECKPOINT]    New OOF AUC: {final_auc:.5f}")
 
 # Generate test predictions
-print("\n[CHECKPOINT] 8.9: Generating ensemble test predictions...")
+print("\n[CHECKPOINT] 8.10: Generating ensemble test predictions...")
 test_stack = np.column_stack([test_predictions[name] for name in model_names])
-test_preds_proba = test_stack @ best_weights
-
-# Apply calibration to test
-try:
-    test_preds_proba = calibrator.predict(test_preds_proba)
-    test_preds_proba = np.clip(test_preds_proba, 0, 1)
-except:
-    pass
+# Note: test_preds_proba is already calculated and updated in Pseudo-labeling step if it ran
+# If pseudo-labeling didn't run or didn't update it, we need to recalculate from ensemble weights
+if 'xgb_pseudo' not in locals():
+    test_preds_proba = test_stack @ best_weights
+    # Apply calibration to test
+    try:
+        test_preds_proba = calibrator.predict_proba(test_preds_proba.reshape(-1, 1))[:, 1]
+    except:
+        pass
 
 test_preds_binary = (test_preds_proba >= best_threshold).astype(int)
-print(f"[CHECKPOINT]    ✓ Test predictions generated")
+print(f"[CHECKPOINT]    [OK] Test predictions generated")
 print(f"[CHECKPOINT]    Binary predictions: {test_preds_binary.sum()} positives ({test_preds_binary.sum()/len(test_preds_binary)*100:.2f}%)")
 
-print(f"\n[CHECKPOINT] ✓ Step 8 complete: Ensemble training finished")
+print(f"\n[CHECKPOINT] [OK] Step 8 complete: Ensemble training finished")
 
 # ============================================================================
 # STEP 8.5: Visualize Model Performance
@@ -1276,10 +1390,10 @@ ax7.grid(axis='y', alpha=0.3)
 plt.suptitle('Model Performance Analysis Dashboard', fontsize=16, fontweight='bold', y=0.995)
 performance_plot_path = os.path.join(SCRIPT_DIR, 'model_performance_plots.png')
 plt.savefig(performance_plot_path, dpi=300, bbox_inches='tight')
-print(f"[CHECKPOINT] ✓ Saved performance plots to: {performance_plot_path}")
+print(f"[CHECKPOINT] [OK] Saved performance plots to: {performance_plot_path}")
 plt.close()
 
-print(f"[CHECKPOINT] ✓ Step 8.5 complete: Performance visualizations created")
+print(f"[CHECKPOINT] [OK] Step 8.5 complete: Performance visualizations created")
 
 # ============================================================================
 # STEP 9: Generate Submission
@@ -1300,7 +1414,7 @@ output_file = os.path.join(SCRIPT_DIR, f'target_encoding_submission_f1_{f1_score
 print(f"[CHECKPOINT] Saving submission to: {output_file}")
 submission.to_csv(output_file, index=False)
 
-print(f"\n[CHECKPOINT] ✓ Step 9 complete: Submission file saved")
+print(f"\n[CHECKPOINT] [OK] Step 9 complete: Submission file saved")
 print(f"[CHECKPOINT] Submission file: {output_file}")
 print(f"\n[CHECKPOINT] Submission statistics:")
 print(f"  Shape: {submission.shape}")
@@ -1348,11 +1462,11 @@ axes[2].grid(axis='y', alpha=0.3)
 plt.tight_layout()
 test_predictions_plot_path = os.path.join(SCRIPT_DIR, 'test_predictions_plots.png')
 plt.savefig(test_predictions_plot_path, dpi=300, bbox_inches='tight')
-print(f"[CHECKPOINT] ✓ Saved test prediction plots to: {test_predictions_plot_path}")
+print(f"[CHECKPOINT] [OK] Saved test prediction plots to: {test_predictions_plot_path}")
 plt.close()
 
 print("\n" + "="*80)
-print("🎉 PIPELINE COMPLETE! 🎉")
+print("[SUCCESS] PIPELINE COMPLETE! [SUCCESS]")
 print("="*80)
 print("[CHECKPOINT] All steps completed successfully!")
 print(f"\n[CHECKPOINT] Final Performance Summary:")
@@ -1371,10 +1485,10 @@ print(f"  Current standing: Top 5-10% range")
 print(f"  Realistic optimal: 0.71-0.74 F1")
 print(f"  Gap to optimal: {0.72 - final_f1:.5f} F1 points")
 print(f"\n[CHECKPOINT] Path to 0.71+ F1:")
-print(f"  1. DAE features (256-dim, 0.15 swap) → +0.02-0.04 F1")
-print(f"  2. RankGauss transformation → +0.015-0.025 F1")
-print(f"  3. NN on DAE + residual keys → +0.01-0.03 F1")
-print(f"  4. Proper ensemble + threshold opt → +0.01-0.015 F1")
+print(f"  1. DAE features (256-dim, 0.15 swap) -> +0.02-0.04 F1")
+print(f"  2. RankGauss transformation -> +0.015-0.025 F1")
+print(f"  3. NN on DAE + residual keys -> +0.01-0.03 F1")
+print(f"  4. Proper ensemble + threshold opt -> +0.01-0.015 F1")
 print("="*80)
 print("[CHECKPOINT] Pipeline execution finished. Check the submission file for results!")
 
@@ -1429,22 +1543,22 @@ ax3.grid(axis='x', alpha=0.3)
 ax4 = fig.add_subplot(gs[2, 0])
 info_text = f"""
 Model Configuration:
-  • Algorithm: Ensemble (XGBoost, LightGBM, CatBoost, NN, Linear)
-  • Features Selected: {best_feature_count} (+ DAE features if available)
-  • Cross-Validation: 10-Fold Stratified
-  • Optimal Threshold: {best_threshold:.4f}
-  • scale_pos_weight: {best_params['scale_pos_weight']:.4f}
-  • Ensemble Models: {len(model_names)} models blended
+  - Algorithm: Ensemble (XGBoost, LightGBM, CatBoost, NN, Linear)
+  - Features Selected: {best_feature_count} (+ DAE features if available)
+  - Cross-Validation: 10-Fold Stratified
+  - Optimal Threshold: {best_threshold:.4f}
+  - scale_pos_weight: {best_params['scale_pos_weight']:.4f}
+  - Ensemble Models: {len(model_names)} models blended
 
 Training Data:
-  • Total Samples: {len(y):,}
-  • Positive Class: {(y==1).sum():,} ({(y==1).sum()/len(y)*100:.2f}%)
-  • Negative Class: {(y==0).sum():,} ({(y==0).sum()/len(y)*100:.2f}%)
+  - Total Samples: {len(y):,}
+  - Positive Class: {(y==1).sum():,} ({(y==1).sum()/len(y)*100:.2f}%)
+  - Negative Class: {(y==0).sum():,} ({(y==0).sum()/len(y)*100:.2f}%)
 
 Test Predictions:
-  • Total Samples: {len(submission):,}
-  • Predicted Positive: {submission['subrogation'].sum():,} ({submission['subrogation'].sum()/len(submission)*100:.2f}%)
-  • Predicted Negative: {(submission['subrogation']==0).sum():,} ({(submission['subrogation']==0).sum()/len(submission)*100:.2f}%)
+  - Total Samples: {len(submission):,}
+  - Predicted Positive: {submission['subrogation'].sum():,} ({submission['subrogation'].sum()/len(submission)*100:.2f}%)
+  - Predicted Negative: {(submission['subrogation']==0).sum():,} ({(submission['subrogation']==0).sum()/len(submission)*100:.2f}%)
 """
 ax4.text(0.05, 0.95, info_text, transform=ax4.transAxes, fontsize=10, 
          verticalalignment='top', fontfamily='monospace',
@@ -1481,16 +1595,16 @@ ax5.grid(axis='y', alpha=0.3)
 plt.suptitle('Final Model Summary Dashboard', fontsize=16, fontweight='bold', y=0.995)
 summary_plot_path = os.path.join(SCRIPT_DIR, 'final_summary_dashboard.png')
 plt.savefig(summary_plot_path, dpi=300, bbox_inches='tight')
-print(f"[CHECKPOINT] ✓ Saved final summary dashboard to: {summary_plot_path}")
+print(f"[CHECKPOINT] [OK] Saved final summary dashboard to: {summary_plot_path}")
 plt.close()
 
 print("\n" + "="*80)
 print("VISUALIZATION SUMMARY")
 print("="*80)
-print(f"✓ Feature Importance Plots: {os.path.join(SCRIPT_DIR, 'feature_importance_plots.png')}")
-print(f"✓ Model Performance Plots: {os.path.join(SCRIPT_DIR, 'model_performance_plots.png')}")
-print(f"✓ Test Predictions Plots: {os.path.join(SCRIPT_DIR, 'test_predictions_plots.png')}")
-print(f"✓ Final Summary Dashboard: {os.path.join(SCRIPT_DIR, 'final_summary_dashboard.png')}")
+print(f"[OK] Feature Importance Plots: {os.path.join(SCRIPT_DIR, 'feature_importance_plots.png')}")
+print(f"[OK] Model Performance Plots: {os.path.join(SCRIPT_DIR, 'model_performance_plots.png')}")
+print(f"[OK] Test Predictions Plots: {os.path.join(SCRIPT_DIR, 'test_predictions_plots.png')}")
+print(f"[OK] Final Summary Dashboard: {os.path.join(SCRIPT_DIR, 'final_summary_dashboard.png')}")
 print("="*80)
 
 # ============================================================================
@@ -1767,14 +1881,14 @@ roadmap_file = os.path.join(SCRIPT_DIR, 'ROADMAP_TO_071.md')
 with open(roadmap_file, 'w') as f:
     f.write(roadmap_content)
 
-print(f"[CHECKPOINT] ✓ Saved improvement roadmap to: {roadmap_file}")
+print(f"[CHECKPOINT] [OK] Saved improvement roadmap to: {roadmap_file}")
 print("\n" + "="*80)
-print("📋 ROADMAP SUMMARY")
+print("[ROADMAP] ROADMAP SUMMARY")
 print("="*80)
 print(f"Current F1: {final_f1:.5f} (Top 5-10%)")
 print(f"Target F1: 0.71-0.74 (Realistic optimal)")
 print(f"Gap: {0.72 - final_f1:.5f} F1 points")
 print(f"\nNext steps documented in: {roadmap_file}")
-print(f"Priority: Implement RankGauss transformation → +0.02 F1")
+print(f"Priority: Implement RankGauss transformation -> +0.02 F1")
 print("="*80)
 
