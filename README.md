@@ -51,6 +51,169 @@ The dataset contains historical claim data from 2020-2021.
 
 Use these as mix-and-match modules: Pipeline0/1 provide vetted features, Pipeline2 supplies representation learning + ensembles, Pipeline3 contributes stacking infra, and Pipeline4 delivers explainable/calibrated scores for business stakeholders.
 
+## Prerequisites
+
+### Core Dependencies
+All pipelines require Python 3.7+ and the following base packages:
+```bash
+pip install pandas numpy scikit-learn scipy matplotlib seaborn
+```
+
+### Pipeline-Specific Dependencies
+
+**Pipeline0 (Target Encoding R&D):**
+```bash
+pip install xgboost lightgbm catboost tensorflow
+```
+
+**Pipeline1 (Baseline GBMs):**
+```bash
+pip install xgboost lightgbm jupyter
+```
+
+**Pipeline2 (Representation Learning DAE):**
+```bash
+pip install tensorflow lightgbm catboost optuna
+```
+
+**Pipeline3 (Heavy Stacking Ensemble):**
+```bash
+pip install xgboost lightgbm
+# Optional: tensorflow (for MLP models)
+pip install tensorflow
+```
+
+**Pipeline4 (Actuarial / Explainable):**
+```bash
+pip install lightgbm shap
+```
+
+### Quick Install (All Pipelines)
+```bash
+pip install pandas numpy scikit-learn scipy matplotlib seaborn xgboost lightgbm catboost tensorflow optuna shap jupyter
+```
+
+## Running the Pipelines
+
+### Pipeline0 – Target Encoding R&D
+
+**Main Script:** `Pipeline0/target_encoding_advanced_features.py`
+
+**Run:**
+```bash
+cd Pipeline0
+python target_encoding_advanced_features.py
+```
+
+**Outputs:**
+- Submission CSV files (e.g., `target_encoding_submission_f1_0_*.csv`)
+- Feature analysis results (`feature_analysis_results_*.csv`)
+- Visualization plots (`*_plots.png`, `*_dashboard.png`)
+
+**Notes:**
+- Implements target encoding with cross-validation to prevent leakage
+- Generates advanced features (time-based, risk scores, ratios, interactions)
+- Includes threshold optimization for F1 score
+- Script auto-installs missing packages if possible
+
+### Pipeline1 – Baseline GBMs
+
+**Main Scripts:** Jupyter Notebooks in `Pipeline1/`
+
+**Run:**
+```bash
+cd Pipeline1
+jupyter notebook
+# Then open and run:
+# - Baseline.ipynb
+# - Baseline Version 2.ipynb
+# - lightgbm_jacob.ipynb
+# - LightGBM.ipynb
+```
+
+**Outputs:**
+- Submission CSV files (e.g., `baseline_submission.csv`, `lightgbm_submission.csv`)
+- Feature importance files (`*_feature_importance.csv`, `*_feature_importance.png`)
+- Performance plots (`*_precision_recall_curve.png`)
+
+**Notes:**
+- Establishes production-ready data preprocessing
+- Provides baseline LightGBM and XGBoost models
+- Includes feature engineering and importance analysis
+
+### Pipeline2 – Representation Learning (DAE)
+
+**Main Script:** `Pipeline2/pipeline2_dae.py`
+
+**Run:**
+```bash
+cd Pipeline2
+python pipeline2_dae.py
+```
+
+**Outputs:**
+- Submission CSV file (saved to `Data/` directory)
+- Trained model artifacts (if saved)
+
+**Notes:**
+- Auto-installs missing packages on first run
+- Uses RankGauss normalization + Denoising Autoencoders
+- Builds 256-dim features from 3 DAE variants
+- Trains 25-model ensemble with F1 weight optimization
+- Can take significant time due to ensemble training
+
+### Pipeline3 – Heavy Stacking Ensemble
+
+**Main Script:** `Pipeline3/pipeline3_stacking.py`
+
+**Run:**
+```bash
+cd Pipeline3
+python pipeline3_stacking.py
+```
+
+**Outputs:**
+- Submission CSV file (saved to `Data/pipeline3_submission.csv`)
+- OOF (Out-of-Fold) predictions for stacking
+
+**Notes:**
+- Implements multi-level stacking with Views A/B/C/D
+- Uses OOF predictions to train Level-2 meta models
+- TensorFlow is optional (for MLP models)
+- Mirrors BNP/Kaggle second-place stacking strategies
+
+### Pipeline4 – Actuarial / Explainable
+
+**Main Script:** `Pipeline4/pipeline4_actuarial.py`
+
+**Run:**
+```bash
+cd Pipeline4
+python pipeline4_actuarial.py
+```
+
+**Outputs:**
+- Submission CSV files (`pipeline4_submission_*.csv`)
+- Governance artifacts:
+  - `feature_importance_governance.csv`
+  - `shap_summary.png`
+  - `pdp_plots.png`
+
+**Notes:**
+- Regulator-friendly pipeline with missingness auditing
+- Uses calibrated LightGBM for probability outputs
+- Generates SHAP and Partial Dependence Plots for explainability
+- Suitable for compliance and business stakeholder reporting
+
+## Data Requirements
+
+All pipelines expect the following data files in the `Data/` directory:
+- `Training_TriGuard.csv` - Training data with target variable
+- `Testing_TriGuard.csv` - Test data for predictions
+- `Column Definations.txt` - Column descriptions (optional, for reference)
+
+Ensure these files exist before running any pipeline.
+
 ## Leaderboard Probe & Dashboard Notes (Model 0.60780)
 
 **Headline:** Public leaderboard F1 jumped from **0.60604 → 0.60780**. Gains are small but meaningful at this stage, and the diagnostic dashboard shows the model is production-ready.
