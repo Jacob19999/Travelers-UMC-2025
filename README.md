@@ -43,8 +43,8 @@ The dataset contains historical claim data from 2020-2021.
 
 | Pipeline | Theme | Highlights |
 | --- | --- | --- |
-| **Pipeline0 – Target Encoding R&D** | Feature research lab modeled after Porto Seguro winners. Houses the `target_encoding_advanced_features.py` experiments, SHAP dashboards, and the `ROADMAP_TO_071.md` plan (RankGauss, advanced interactions, pseudo-labeling). |
-| **Pipeline1 – Baseline GBMs** | Cleaned tabular dataset + LightGBM/XGBoost baselines (`Baseline.ipynb`, `lightgbm_jacob.ipynb`). Establishes the production-ready data prep, feature lists, and benchmark submissions. |
+| **Pipeline0 – Target Encoding R&D** | Feature research lab modeled after Porto Seguro winners. Houses the `Pipeline_0.py` experiments, SHAP dashboards, and the `ROADMAP_TO_071.md` plan (RankGauss, advanced interactions, pseudo-labeling). |
+| **Pipeline1 – Baseline GBMs** | Cleaned tabular dataset + LightGBM/XGBoost baselines (`Pipeline 1 Version 0.ipynb`, `Pipeline 1 Version 1.ipynb`, `Pipeline 1 Version 2.ipynb`). Establishes the production-ready data prep, feature lists, and benchmark submissions. |
 | **Pipeline2 – Representation Learning (DAE)** | Current flagship. RankGauss + swap-noise Denoising Autoencoders build 256-dim features (3 variants concatenated). A 25-model ensemble (NNs, 10+ GBM/CatBoost flavors, scikit stacking heads) is weight-optimized for F1. See `pipeline2_dae.py`. |
 | **Pipeline3 – Heavy Stacking Ensemble** | Model-zoo approach (Views A/B/C/D) with OOF predictions fed into Level-2 meta models. Mirrors BNP/Kaggle second-place stacking strategies. Documentation in `Pipeline3_Description.txt`. |
 | **Pipeline4 – Actuarial / Explainable** | Regulator-friendly pipeline: missingness auditing, robust imputations, calibrated LightGBM, SHAP + PDP reporting for governance. Outputs probability files for compliance-friendly ensembles. |
@@ -97,16 +97,16 @@ pip install pandas numpy scikit-learn scipy matplotlib seaborn xgboost lightgbm 
 
 ### Pipeline0 – Target Encoding R&D
 
-**Main Script:** `Pipeline0/target_encoding_advanced_features.py`
+**Main Script:** `Pipeline0/Pipeline_0.py`
 
 **Run:**
 ```bash
 cd Pipeline0
-python target_encoding_advanced_features.py
+python Pipeline_0.py
 ```
 
 **Outputs:**
-- Submission CSV files (e.g., `target_encoding_submission_f1_0_*.csv`)
+- Submission CSV files in `submission csv/` folder (e.g., `target_encoding_submission_f1_0_*.csv`)
 - Feature analysis results (`feature_analysis_results_*.csv`)
 - Visualization plots (`*_plots.png`, `*_dashboard.png`)
 
@@ -125,15 +125,14 @@ python target_encoding_advanced_features.py
 cd Pipeline1
 jupyter notebook
 # Then open and run:
-# - Baseline.ipynb
-# - Baseline Version 2.ipynb
-# - lightgbm_jacob.ipynb
-# - LightGBM.ipynb
+# - Pipeline 1 Version 0.ipynb
+# - Pipeline 1 Version 1.ipynb
+# - Pipeline 1 Version 2.ipynb
 ```
 
 **Outputs:**
-- Submission CSV files (e.g., `baseline_submission.csv`, `lightgbm_submission.csv`)
-- Feature importance files (`*_feature_importance.csv`, `*_feature_importance.png`)
+- Submission CSV files in `csv/` folder (e.g., `baseline_submission.csv`, `lightgbm_submission.csv`)
+- Feature importance files in `csv/` folder (`*_feature_importance.csv`, `*_feature_importance.png`)
 - Performance plots (`*_precision_recall_curve.png`)
 
 **Notes:**
@@ -152,7 +151,7 @@ python pipeline2_dae.py
 ```
 
 **Outputs:**
-- Submission CSV file (saved to `Data/` directory)
+- Submission CSV file (saved to `Data/` or `Output/submissions/` directory)
 - Trained model artifacts (if saved)
 
 **Notes:**
@@ -173,7 +172,7 @@ python pipeline3_stacking.py
 ```
 
 **Outputs:**
-- Submission CSV file (saved to `Data/pipeline3_submission.csv`)
+- Submission CSV file (saved to `Data/` or `Output/submissions/` directory)
 - OOF (Out-of-Fold) predictions for stacking
 
 **Notes:**
@@ -213,6 +212,28 @@ All pipelines expect the following data files in the `Data/` directory:
 - `Column Definations.txt` - Column descriptions (optional, for reference)
 
 Ensure these files exist before running any pipeline.
+
+## Running All Pipelines
+
+A convenience script is available to run all pipelines sequentially:
+
+**Script:** `run_all_pipelines.py`
+
+**Run:**
+```bash
+python run_all_pipelines.py
+```
+
+**Note:** This will execute all pipeline scripts in order. Ensure all prerequisites are installed before running.
+
+## Output Directory Structure
+
+Pipeline outputs are organized as follows:
+- **`Output/submissions/`** - Final submission CSV files from all pipelines
+- **`Output/plots/`** - Comparison plots and metrics visualizations
+- **`Pipeline0/submission csv/`** - Pipeline0 submission files
+- **`Pipeline1/csv/`** - Pipeline1 submission and analysis files
+- **`Pipeline4/`** - Pipeline4 governance artifacts (SHAP, PDP plots, feature importance)
 
 ## Leaderboard Probe & Dashboard Notes (Model 0.60780)
 
