@@ -16,7 +16,7 @@
 
 ## Path to 0.71+ F1: Priority-Ordered Action Items
 
-### TIER 1: High-Impact Quick Wins (Expected: +0.03-0.06 F1)
+### TIER 1: (Expected: +0.03-0.06 F1)
 
 #### 1. RankGauss Transformation on Numeric Features
 **Expected gain**: +0.015-0.025 F1
@@ -32,8 +32,6 @@ numeric_features = ['liab_prct', 'claim_est_payout', 'annual_income',
 train_rg = rank_gauss.fit_transform(train[numeric_features])
 test_rg = rank_gauss.transform(test[numeric_features])
 ```
-
-Why it works: Porto Seguro winner used this - transforms to Gaussian, helps both trees and NNs.
 
 #### 2. Optimize Per-Fold Thresholds and Average
 **Expected gain**: +0.01-0.015 F1
@@ -251,13 +249,3 @@ For semi-supervised learning:
 - Scale pos weight: 3.32
 - CV Strategy: 10-Fold Stratified
 
-## Next Immediate Action
-
-**START HERE**: Implement RankGauss transformation (TIER 1, Item 1)
-This is the easiest +0.02 F1 you'll get. Takes ~30 minutes to implement.
-
----
-Generated: 2025-11-20 23:35:46
-Current F1: 0.57528
-Target F1: 0.71-0.74
-Gap: 0.14472
