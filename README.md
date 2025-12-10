@@ -265,6 +265,11 @@ Pipeline outputs are organized as follows:
 2. **Probability Distribution:** TNs pile below 0.3, TPs peak above 0.7, leaving little ambiguity near 0.5 → explains why threshold ≈0.5 is optimal.
 3. **Threshold-vs-F1 Curve:** Classic convex shape peaking at 0.597 F1 near 0.5, confirming strong calibration.
 4. **Fold Stability:** F1 varies ±0.02, thresholds 0.48–0.55. No leak/instability detected.
+5. 
+## Reference
+Porto Seguro 1st place: https://www.kaggle.com/c/porto-seguro-safe-driver-prediction/discussion/44629
+DAE Tutorial: https://www.kaggle.com/code/sishihara/keras-autoencoder
+Threshold Optimization: https://www.kaggle.com/code/ragnar123/optimizing-f1-score-using-threshold
 
 ## Disclaimer
 TriGuard Insurance Company and the data are fictitious examples used for the purpose of this competition only.
