@@ -43,9 +43,9 @@ The dataset contains historical claim data from 2020-2021.
 
 | Pipeline | Theme | Highlights |
 | --- | --- | --- |
-| **Pipeline0 – Target Encoding R&D** | Feature research lab modeled after Porto Seguro winners. Houses the `target_encoding_advanced_features.py` experiments, SHAP dashboards, and the `ROADMAP_TO_071.md` plan (RankGauss, advanced interactions, pseudo-labeling). |
+| **Pipeline0 – Target Encoding R&D** | Current flagship. Feature research lab modeled after Porto Seguro winners. Houses the `target_encoding_advanced_features.py` experiments, SHAP dashboards, and the `ROADMAP_TO_071.md` plan (RankGauss, advanced interactions, pseudo-labeling). |
 | **Pipeline1 – Baseline GBMs** | Cleaned tabular dataset + LightGBM/XGBoost baselines (`Baseline.ipynb`, `lightgbm_jacob.ipynb`). Establishes the production-ready data prep, feature lists, and benchmark submissions. |
-| **Pipeline2 – Representation Learning (DAE)** | Current flagship. RankGauss + swap-noise Denoising Autoencoders build 256-dim features (3 variants concatenated). A 25-model ensemble (NNs, 10+ GBM/CatBoost flavors, scikit stacking heads) is weight-optimized for F1. See `pipeline2_dae.py`. |
+| **Pipeline2 – Representation Learning (DAE)** |  RankGauss + swap-noise Denoising Autoencoders build 256-dim features (3 variants concatenated). A 25-model ensemble (NNs, 10+ GBM/CatBoost flavors, scikit stacking heads) is weight-optimized for F1. See `pipeline2_dae.py`. |
 | **Pipeline3 – Heavy Stacking Ensemble** | Model-zoo approach (Views A/B/C/D) with OOF predictions fed into Level-2 meta models. Mirrors BNP/Kaggle second-place stacking strategies. Documentation in `Pipeline3_Description.txt`. |
 | **Pipeline4 – Actuarial / Explainable** | Regulator-friendly pipeline: missingness auditing, robust imputations, calibrated LightGBM, SHAP + PDP reporting for governance. Outputs probability files for compliance-friendly ensembles. |
 
